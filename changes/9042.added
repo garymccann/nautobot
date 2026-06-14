@@ -1,0 +1,1 @@
+Added Object Lock: a reference-counted, attributable, time-bounded protection that prevents accidental deletion or modification of existing objects through the UI, REST API, and Jobs, with whole-object or field-level scope. Lock state is surfaced globally in the Web UI and GraphQL, and on the Manufacturer REST API in this release.

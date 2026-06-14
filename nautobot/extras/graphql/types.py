@@ -5,11 +5,12 @@ from nautobot.extras.filters import (
     ContactAssociationFilterSet,
     DynamicGroupFilterSet,
     JobFilterSet,
+    ObjectLockFilterSet,
     ScheduledJobFilterSet,
     StatusFilterSet,
     TagFilterSet,
 )
-from nautobot.extras.models import ContactAssociation, DynamicGroup, Job, ScheduledJob, Status, Tag
+from nautobot.extras.models import ContactAssociation, DynamicGroup, Job, ObjectLock, ScheduledJob, Status, Tag
 
 
 class ContactAssociationType(OptimizedNautobotObjectType):
@@ -54,6 +55,14 @@ class StatusType(OptimizedNautobotObjectType):
     class Meta:
         model = Status
         filterset_class = StatusFilterSet
+
+
+class ObjectLockType(OptimizedNautobotObjectType):
+    """GraphQL Type object for the `ObjectLock` model."""
+
+    class Meta:
+        model = ObjectLock
+        filterset_class = ObjectLockFilterSet
 
 
 class TagType(OptimizedNautobotObjectType):

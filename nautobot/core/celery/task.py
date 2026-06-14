@@ -29,6 +29,10 @@ class NautobotTask(Task):
         if not hasattr(self, "_nautobot_branch_contexts"):
             self._nautobot_branch_contexts = {}
         self._nautobot_branch_contexts[task_id] = ctx
+        # Defense-in-depth: ensure no stale Object Lock bypass flag leaks across task executions.
+        from nautobot.extras.locking import reset_bypass
+
+        reset_bypass()
 
     def after_return(self, status, retval, task_id, args, kwargs, einfo):
         ctx = getattr(self, "_nautobot_branch_contexts", {}).pop(task_id, None)

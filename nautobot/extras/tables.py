@@ -55,6 +55,7 @@ from .models import (
     MetadataType,
     Note,
     ObjectChange,
+    ObjectLock,
     ObjectMetadata,
     Relationship,
     RelationshipAssociation,
@@ -1637,6 +1638,48 @@ class ObjectChangeTable(BaseTable):
                             Please ensure you fully understand the implications of these actions before proceeding.
                             """)
             logger.warning(error_message)
+
+
+#
+# Object Locks
+#
+
+
+class ObjectLockTable(BaseTable):
+    pk = ToggleColumn()
+    content_type = tables.Column(verbose_name="Type")
+    locked_object = tables.Column(linkify=True, verbose_name="Locked object", orderable=False)
+    prevent_delete = BooleanColumn()
+    prevent_update = BooleanColumn()
+    # Linkified to the lock's own detail (standard list convention); locked_object links to the target.
+    source_key = tables.Column(linkify=True, verbose_name="Source")
+    expires = tables.DateTimeColumn()
+    actions = ButtonsColumn(ObjectLock, buttons=("delete",))
+
+    class Meta(BaseTable.Meta):
+        model = ObjectLock
+        fields = (
+            "pk",
+            "content_type",
+            "locked_object",
+            "prevent_delete",
+            "prevent_update",
+            "source_context",
+            "source_key",
+            "created_by",
+            "expires",
+            "actions",
+        )
+        default_columns = (
+            "pk",
+            "content_type",
+            "locked_object",
+            "prevent_delete",
+            "prevent_update",
+            "source_key",
+            "expires",
+            "actions",
+        )
 
 
 #

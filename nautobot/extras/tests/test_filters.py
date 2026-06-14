@@ -10,7 +10,7 @@ from django.test import override_settings, RequestFactory, tag
 from django.utils.timezone import now
 
 from nautobot.core.jobs import BulkDeleteObjects
-from nautobot.core.testing import FilterTestCases
+from nautobot.core.testing import FilterTestCases, TestCase
 from nautobot.dcim.filters import DeviceFilterSet
 from nautobot.dcim.models import (
     Device,
@@ -68,6 +68,7 @@ from nautobot.extras.filters import (
     MetadataChoiceFilterSet,
     MetadataTypeFilterSet,
     ObjectChangeFilterSet,
+    ObjectLockFilterSet,
     ObjectMetadataFilterSet,
     RelationshipAssociationFilterSet,
     RelationshipFilterSet,
@@ -115,6 +116,7 @@ from nautobot.extras.models import (
     MetadataChoice,
     MetadataType,
     ObjectChange,
+    ObjectLock,
     ObjectMetadata,
     Relationship,
     RelationshipAssociation,
@@ -1362,7 +1364,8 @@ class JobFilterSetTestCase(FilterTestCases.FilterTestCase):
     @tag("example_app")
     def test_hidden(self):
         params = {"hidden": True}
-        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 3)
+        # 3 baseline hidden jobs + 2 hidden Object Lock bulk jobs (BulkLockObjects, BulkReleaseObjects).
+        self.assertEqual(self.filterset(params, self.queryset).qs.count(), 5)
 
     def test_read_only(self):
         params = {"read_only": True}
@@ -2634,3 +2637,63 @@ class RoleTestCase(FilterTestCases.FilterTestCase):
         rack_roles = self.queryset.filter(content_types=rack_ct)
         params = {"content_types": ["dcim.rack"]}
         self.assertQuerySetEqualAndNotEmpty(self.filterset(params, self.queryset).qs, rack_roles)
+
+
+class ObjectLockFilterTestCase(TestCase):
+    """Tests for the ``ObjectLockFilterSet`` ``q`` free-text search.
+
+    Uses distinctive tokens and membership assertions (``assertIn``/``assertNotIn``) rather than exact
+    counts, so it stays correct even when the ``--keepdb`` test database retains ``ObjectLock`` rows
+    committed by the Selenium/integration suite.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        ct = ContentType.objects.get_for_model(Manufacturer)
+        mfr_a = Manufacturer.objects.create(name="QSearch Mfr A")
+        mfr_b = Manufacturer.objects.create(name="QSearch Mfr B")
+        cls.lock_a = ObjectLock.objects.create(
+            content_type=ct,
+            object_id=mfr_a.pk,
+            prevent_delete=True,
+            reason="zqs alpha justification",
+            source_key="zqs-source-alpha",
+            source_detail="zqs detail alpha",
+        )
+        cls.lock_b = ObjectLock.objects.create(
+            content_type=ct,
+            object_id=mfr_b.pk,
+            prevent_delete=True,
+            reason="zqs beta justification",
+            source_key="zqs-source-beta",
+            source_detail="zqs detail beta",
+        )
+
+    def _search(self, value):
+        return ObjectLockFilterSet({"q": value}, ObjectLock.objects.all()).qs
+
+    def test_q_matches_source_key(self):
+        qs = self._search("zqs-source-alpha")
+        self.assertIn(self.lock_a, qs)
+        self.assertNotIn(self.lock_b, qs)
+
+    def test_q_matches_reason(self):
+        qs = self._search("beta justification")
+        self.assertIn(self.lock_b, qs)
+        self.assertNotIn(self.lock_a, qs)
+
+    def test_q_matches_source_detail(self):
+        qs = self._search("detail alpha")
+        self.assertIn(self.lock_a, qs)
+        self.assertNotIn(self.lock_b, qs)
+
+    def test_q_matches_content_type_model(self):
+        # Both locks target Manufacturer, so the content-type search returns both.
+        qs = self._search("manufacturer")
+        self.assertIn(self.lock_a, qs)
+        self.assertIn(self.lock_b, qs)
+
+    def test_q_no_match_returns_neither(self):
+        qs = self._search("zzz-no-such-token-xyz")
+        self.assertNotIn(self.lock_a, qs)
+        self.assertNotIn(self.lock_b, qs)

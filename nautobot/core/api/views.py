@@ -177,6 +177,50 @@ class BulkDestroyModelMixin:
 #
 
 
+def _object_locked_response(exc, request):
+    """Build the 409 body for a blocked write, honoring ``extras.view_objectlock`` (no metadata leak without it).
+
+    Args:
+        exc: The ``ObjectLockedError`` instance that was raised.
+        request: The DRF request object.
+
+    Returns:
+        A DRF ``Response`` with HTTP 409 Conflict status.
+    """
+    from nautobot.extras.locking import GATE_MODE_DELETE, GATE_MODE_UPDATE
+    from nautobot.extras.models import ObjectLock
+
+    user = getattr(request, "user", None)
+    can_view = user is not None and user.has_perm("extras.view_objectlock")
+    body = {"error_code": "object_locked"}
+    if can_view:
+        # The precise frozen field name(s) whose change triggered this block.
+        body["offending_fields"] = list(getattr(exc, "offending_fields", []))
+        instance = next(iter(getattr(exc, "protected_objects", []) or []), None)
+        if instance is not None:
+            ct = ContentType.objects.get_for_model(instance)
+            claims = [
+                {
+                    "source_key": c.source_key,
+                    "prevent_delete": c.prevent_delete,
+                    "prevent_update": c.prevent_update,
+                    "reason": c.reason,
+                    "locked_fields": c.locked_fields,
+                }
+                for c in ObjectLock.objects.filter(content_type=ct, object_id=instance.pk).active()
+            ]
+            modes = sorted(
+                {GATE_MODE_DELETE for c in claims if c["prevent_delete"]}
+                | {GATE_MODE_UPDATE for c in claims if c["prevent_update"]}
+            )
+            body["detail"] = str(exc)
+            body["modes"] = modes
+            body["locks"] = claims
+    else:
+        body["detail"] = "This object is locked and cannot be modified or deleted."
+    return Response(body, status=status.HTTP_409_CONFLICT)
+
+
 class ModelViewSetMixin:
     logger = logging.getLogger(__name__ + ".ModelViewSet")
 
@@ -320,8 +364,18 @@ class ModelViewSetMixin:
     def dispatch(self, request, *args, **kwargs):
         try:
             return super().dispatch(request, *args, **kwargs)
-        except ProtectedError as e:
-            protected_objects = list(e.protected_objects)
+        except ProtectedError as exc:
+            # ObjectLockedError is a ProtectedError subclass. perform_destroy() and perform_update()
+            # wrap the DB operation in transaction.atomic() (with savepoint=True by default), so by
+            # the time this except clause runs the savepoint has already been rolled back cleanly and
+            # the transaction is in a usable state. Build and return the 409 response.
+            from nautobot.extras.locking import ObjectLockedError
+
+            if isinstance(exc, ObjectLockedError):
+                self.logger.warning("Write blocked by Object Lock: %s", exc)
+                return self.finalize_response(request, _object_locked_response(exc, request), *args, **kwargs)
+
+            protected_objects = list(exc.protected_objects)
             msg = f"Unable to delete object. {len(protected_objects)} dependent objects were found: "
             msg += ", ".join([f"{obj} ({obj.pk})" for obj in protected_objects])
             self.logger.warning(msg)
@@ -390,7 +444,13 @@ class ModelViewSet(
         model = self.queryset.model
         self.logger.info(f"Deleting {model._meta.verbose_name} {instance} (PK: {instance.pk})")
 
-        return super().perform_destroy(instance)
+        # Wrap in a savepoint-based atomic block so that if ObjectLockedError (or any ProtectedError)
+        # is raised from Django's Collector.delete() — which uses atomic(savepoint=False) internally —
+        # the savepoint is rolled back cleanly before the exception propagates. Without this wrapper,
+        # Collector.delete()'s atomic(savepoint=False) sets connection.needs_rollback=True on the
+        # enclosing TestCase transaction, making all subsequent DB queries fail.
+        with transaction.atomic():
+            return super().perform_destroy(instance)
 
 
 class ReadOnlyModelViewSet(NautobotAPIVersionMixin, ModelViewSetMixin, ReadOnlyModelViewSet_):
