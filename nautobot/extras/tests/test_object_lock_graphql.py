@@ -122,7 +122,9 @@ class ObjectLockGraphQLQueryCountTestCase(_GraphQLTestMixin, TestCase):
         return sum(
             1
             for q in captured_queries
-            if '"extras_objectlock"' in q["sql"]
+            # Bare table name (no surrounding quote char) matches both Postgres ("x") and MySQL (`x`)
+            # identifier quoting; the two excludes below drop the sibling generation/audit tables.
+            if "extras_objectlock" in q["sql"]
             and "extras_objectlockgeneration" not in q["sql"]
             and "extras_objectlockbypassaudit" not in q["sql"]
         )
