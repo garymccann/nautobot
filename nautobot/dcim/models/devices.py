@@ -2339,14 +2339,6 @@ class VirtualDeviceContext(PrimaryModel):
     "graphql",
 )
 class InterfaceVDCAssignment(BaseModel):
-    # ===== REMOVE BEFORE MERGE — temporary workaround for a core bug (not Object Lock) =====
-    # This M2M through model has no detail view, so it must be excluded from the Metadata-associable
-    # pool like its sibling through models (e.g. DeviceClusterAssignment above); otherwise
-    # extras.ObjectMetadataTestCase.test_list_objects_with_constrained_permission fails in CI on
-    # assigned_object.get_absolute_url(). Pre-existing core bug surfaced by the develop merge. Delete
-    # this line once the upstream fix lands on develop (it will arrive via merge). Tracked with core.
-    is_metadata_associable_model = False
-    # =======================================================================================
     virtual_device_context = models.ForeignKey(
         VirtualDeviceContext, on_delete=models.CASCADE, related_name="interface_assignments"
     )
