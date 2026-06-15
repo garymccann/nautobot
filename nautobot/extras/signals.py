@@ -480,6 +480,11 @@ def _handle_deleted_object(sender, instance, **kwargs):
 #
 
 
+# Deliberately global (no ``sender=``): connecting a sender-less ``pre_delete`` receiver for every
+# model disables Django's bulk fast-delete path app-wide. That is intentional — it forces
+# ``QuerySet.delete()`` to fetch and fire ``pre_delete`` per row, so a bulk delete under a change
+# context stays enforced instead of silently skipping locked rows. The kill-switch / change-context /
+# BaseModel guards below keep the no-lock cost negligible.
 @receiver(pre_delete)
 def _object_lock_enforce_delete(sender, instance, raw=False, **kwargs):
     """Block deletes of delete-locked objects."""

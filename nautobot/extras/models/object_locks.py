@@ -8,9 +8,8 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist, ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
-from django.utils.functional import cached_property
 
 from nautobot.core.constants import CHARFIELD_MAX_LENGTH
 from nautobot.core.models import BaseManager, BaseModel
@@ -21,7 +20,8 @@ from nautobot.extras.utils import extras_features
 
 logger = logging.getLogger(__name__)
 
-OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH = 255
+# A source key is a standard char-field identifier; track the global cap rather than duplicate 255.
+OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH = CHARFIELD_MAX_LENGTH
 
 
 def validate_locked_field_names(model, field_names):
@@ -261,7 +261,8 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
         Returns:
             List of created/updated ObjectLock instances.
         """
-        return [self.lock(obj, requesting_user=requesting_user, **kwargs) for obj in objs]
+        with transaction.atomic():
+            return [self.lock(obj, requesting_user=requesting_user, **kwargs) for obj in objs]
 
     def release_many(self, objs, *, source_key):
         """Release the *source_key* claim on multiple objects.
@@ -270,8 +271,9 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
             objs: Iterable of UUID-PK BaseModel instances to unlock.
             source_key: The claim identifier to remove from each object.
         """
-        for obj in objs:
-            self.release(obj, source_key=source_key)
+        with transaction.atomic():
+            for obj in objs:
+                self.release(obj, source_key=source_key)
 
     @contextmanager
     def locked(self, obj_or_iterable, *, source_key=None, requesting_user, **kwargs):
@@ -374,7 +376,7 @@ class ObjectLock(ChangeLoggedModel, BaseModel):
             modes.append("update")
         return f"Lock ({'/'.join(modes) or 'none'}) on {self.locked_object} by {self.source_key}"
 
-    @cached_property
+    @property
     def mode(self):
         """Return the effective lock mode derived from prevent_delete/prevent_update flags.
 
@@ -453,7 +455,7 @@ class ObjectLockBypassAudit(BaseModel):
         on_delete=models.PROTECT,
         related_name="object_lock_bypass_audits",
     )
-    object_id = models.UUIDField()
+    object_id = models.UUIDField(db_index=True)
     change_id = models.UUIDField(null=True, blank=True)
     suspended_source_keys = models.JSONField(default=list)
     suspended_fields = models.JSONField(default=list)
@@ -461,6 +463,7 @@ class ObjectLockBypassAudit(BaseModel):
     detail = models.TextField(blank=True)
 
     # Write-only, admin-only immutable audit table — not a Metadata association target (mirrors ObjectLock).
+    natural_key_field_names = ["pk"]
     is_metadata_associable_model = False
 
     class Meta:

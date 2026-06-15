@@ -75,6 +75,19 @@ back as `{"source_key": "<key from lock response>"}` to release that specific cl
 also listable and deletable at `/api/extras/object-locks/`, but cannot be created or edited in place
 there — always use the per-object `lock` / `release` actions, which derive and preserve attribution.
 
+### Expiry and indefinite locks
+
+Every lock has an expiry. When `expires` is omitted, the lock inherits `OBJECT_LOCK_DEFAULT_TTL`
+(24 hours by default) — a backstop so a forgotten or crashed-process lock cannot protect an object
+forever. Pass an explicit `expires` (any future datetime) to set a different lifetime, such as a
+far-future date for a long change freeze.
+
+To create a lock with **no expiry**, a programmatic caller passes `expires=None` together with
+`_expires_explicit=True`; alternatively, setting `OBJECT_LOCK_DEFAULT_TTL = None` in
+`nautobot_config.py` makes every lock that omits `expires` indefinite. An indefinite lock is **never**
+reaped by the expiry sweep (only orphan cleanup can remove it), so it must be released explicitly —
+prefer a generous explicit `expires` over an indefinite lock unless a process guarantees release.
+
 ## Viewing locks
 
 Active lock records are visible in the Nautobot UI under
@@ -83,6 +96,8 @@ Active lock records are visible in the Nautobot UI under
 Locks are change-logged like any other object: each lock create/release (and the sweep Job's
 cleanup) writes a change-log entry, so lock activity is auditable from the change log. Because locks
 are high-churn, expect this to add change-log volume proportional to how heavily the feature is used.
+The sweep change-logs each record it removes, so a run that reaps N expired or orphaned locks writes N
+change-log entries — size its schedule with that volume in mind.
 
 ### Querying lock state via GraphQL
 
@@ -152,6 +167,20 @@ Sweep → Schedule**, assigning an owner so the scheduler accepts it. Expired lo
 moment they expire (enforcement ignores them live), so the sweep is housekeeping that keeps the lock
 table tidy, not a control over whether an expired lock blocks. Monitor its last-success age under
 **Jobs → Job Results**.
+
+**Schedule it after install.** If the sweep never runs, expired and orphaned lock *records*
+accumulate indefinitely: enforcement is unaffected (expired locks are ignored the moment they
+expire), but the `extras_objectlock` table grows without bound. Alert on the
+`nautobot_object_lock_sweep_last_success_timestamp_seconds` metric so a sweep that has never run — or
+has silently stopped — is caught.
+
+### Upgrades and app uninstalls
+
+`ObjectLock` references its target's content type through a `PROTECT` foreign key, so a `ContentType`
+that still has lock records cannot be deleted. If you **uninstall an app** whose models hold locks,
+Nautobot's stale-content-type cleanup is blocked until those locks are gone. Run the **Object Lock
+Sweep** first: it treats locks whose target model is no longer installed as orphaned and purges them,
+clearing the way for content-type cleanup.
 
 ## Field-Level Locking
 

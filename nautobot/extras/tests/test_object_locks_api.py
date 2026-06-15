@@ -2,11 +2,14 @@
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework import status
 
 from nautobot.core.testing import APITestCase, APIViewTestCases
 from nautobot.dcim.models import Manufacturer
+from nautobot.extras.api.object_locks import ObjectLockSerializer
 from nautobot.extras.choices import ObjectChangeEventContextChoices
 from nautobot.extras.models import ObjectLock
 
@@ -56,8 +59,6 @@ class ObjectLockAPITestCase(
         self.assertHttpStatus(response, 405)
 
     def test_created_by_is_read_only_in_serializer(self):
-        from nautobot.extras.api.object_locks import ObjectLockSerializer
-
         serializer = ObjectLockSerializer()
         for field_name in ("source_context", "source_detail", "source_key", "created_by"):
             self.assertTrue(
@@ -145,6 +146,30 @@ class ObjectLockableActionsTestCase(APITestCase):
         url = f"/api/dcim/manufacturers/{self.mfg.pk}/release/"
         response = self.client.post(url, {}, format="json", **self.header)
         self.assertHttpStatus(response, 400)
+
+    def test_lock_action_rejects_cross_owner_source_key_reuse(self):
+        """Reusing another source's source_key needs force_release_objectlock; the action 400s without it."""
+        other = User.objects.create_user(username="other-lock-owner")
+        ObjectLock.objects.lock(self.mfg, prevent_delete=True, source_key="shared", requesting_user=other)
+        self.add_permissions("extras.add_objectlock", "dcim.view_manufacturer")
+        url = f"/api/dcim/manufacturers/{self.mfg.pk}/lock/"
+        response = self.client.post(url, {"prevent_delete": True, "source_key": "shared"}, format="json", **self.header)
+        self.assertHttpStatus(response, 400)
+        # The other source's single claim is left untouched (no silent takeover).
+        self.assertEqual(ObjectLock.objects.for_object(self.mfg).get().created_by, other)
+
+    def test_force_release_permits_cross_owner_source_key_reuse(self):
+        """With force_release_objectlock the reuse is allowed (201) and refreshes the existing claim."""
+        other = User.objects.create_user(username="other-lock-owner-2")
+        ObjectLock.objects.lock(self.mfg, prevent_delete=True, source_key="shared", requesting_user=other)
+        self.add_permissions("extras.add_objectlock", "extras.force_release_objectlock", "dcim.view_manufacturer")
+        url = f"/api/dcim/manufacturers/{self.mfg.pk}/lock/"
+        response = self.client.post(url, {"prevent_update": True, "source_key": "shared"}, format="json", **self.header)
+        self.assertHttpStatus(response, 201)
+        # Refreshed in place (still one claim, attribution preserved), not a second claim.
+        lock = ObjectLock.objects.for_object(self.mfg).get()
+        self.assertTrue(lock.prevent_update)
+        self.assertEqual(lock.created_by, other)
 
 
 class ObjectLockGenericDeleteAuthzTestCase(APITestCase):
@@ -295,9 +320,6 @@ class ObjectLockSerializerQueryCountTestCase(APITestCase):
         self.add_permissions("dcim.view_manufacturer")
 
     def test_lock_state_is_batched_per_page(self):
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         for i in range(5):
             mfg = Manufacturer.objects.create(name=f"QueryCount Mfg {i}")
             ObjectLock.objects.lock(mfg, prevent_delete=True, source_key=f"qc-{i}", requesting_user=self.user)

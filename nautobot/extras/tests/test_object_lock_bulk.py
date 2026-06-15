@@ -1,19 +1,22 @@
 from datetime import timedelta
 import logging
 from types import SimpleNamespace
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.template import Context, Template
 from django.test import Client, override_settings, RequestFactory, TestCase
 from django.urls import reverse as dj_reverse
 from django.utils import timezone
 
-from nautobot.core.jobs.object_lock_bulk import BulkLockObjects, BulkReleaseObjects
+from nautobot.core.jobs.object_lock_bulk import _mode_flags, BulkLockObjects, BulkReleaseObjects
 from nautobot.dcim.models import Manufacturer
 from nautobot.extras.choices import ObjectLockModeChoices
 from nautobot.extras.forms.object_lock_bulk import ObjectLockBulkLockForm, ObjectLockBulkReleaseForm
 from nautobot.extras.models import ObjectLock
+from nautobot.extras.models.object_locks import ObjectLockManager
 from nautobot.users.models import ObjectPermission
 
 User = get_user_model()
@@ -83,12 +86,6 @@ class BulkLockObjectsTestCase(TestCase):
 
     def test_one_bad_target_does_not_abort_batch(self):
         """A per-object error is counted as failed; the rest of the batch still locks."""
-        from unittest import mock
-
-        from django.core.exceptions import ValidationError
-
-        from nautobot.extras.models.object_locks import ObjectLockManager
-
         expiry = timezone.now() + timedelta(days=1)
         real_lock = ObjectLock.objects.lock
 
@@ -114,16 +111,12 @@ class BulkLockObjectsTestCase(TestCase):
 
     def test_manager_rejects_past_expiry(self):
         """A past expiry is rejected at the manager, so programmatic/bulk locks can't be born expired."""
-        from django.core.exceptions import ValidationError
-
         past = timezone.now() - timedelta(days=1)
         with self.assertRaises(ValidationError):
             ObjectLock.objects.lock(self.a, prevent_delete=True, expires=past, requesting_user=self.user)
 
     def test_mode_flags_covers_all_choices(self):
         """Exhaustiveness: every ObjectLockModeChoices value maps to a (prevent_delete, prevent_update) tuple."""
-        from nautobot.core.jobs.object_lock_bulk import _mode_flags
-
         for value, _label in ObjectLockModeChoices.CHOICES:
             flags = _mode_flags(value)
             self.assertEqual(len(flags), 2)

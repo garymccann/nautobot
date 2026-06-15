@@ -222,6 +222,30 @@ class ObjectLockChangedFieldsTestCase(TestCase):
         changed = get_changed_fields(m, {"description"})
         self.assertEqual(changed, {"description"})
 
+    def test_snapshot_path_fk_field_diffs_on_pk_not_false_positive(self):
+        """A frozen FK is compared by pk: an unchanged FK is not reported; a reassigned FK is.
+
+        Regression guard — snapshots store an FK as its pk string and the live diff serializes the
+        instance's FK ``_id`` the same way, so an unchanged FK must NOT false-positive (which would
+        block legitimate edits to other fields), while a genuine reassignment must be caught.
+        """
+        from nautobot.dcim.models import Platform
+        from nautobot.extras.context_managers import ORMChangeContext
+        from nautobot.extras.signals import change_context_state
+
+        mfg_a = Manufacturer.objects.create(name="FKa")
+        mfg_b = Manufacturer.objects.create(name="FKb")
+        platform = Platform.objects.create(name="FKplat", manufacturer=mfg_a)
+        ctx = ORMChangeContext(user=self.user)
+        ctx.pre_object_data = {str(platform.pk): {"manufacturer": str(mfg_a.pk)}}
+        token = change_context_state.set(ctx)
+        try:
+            self.assertEqual(get_changed_fields(platform, {"manufacturer"}), set())  # unchanged FK
+            platform.manufacturer = mfg_b
+            self.assertEqual(get_changed_fields(platform, {"manufacturer"}), {"manufacturer"})  # reassigned
+        finally:
+            change_context_state.reset(token)
+
 
 class ObjectLockFieldEnforcementTestCase(TestCase):
     """End-to-end: editing a frozen field raises; editing an unfrozen field succeeds."""

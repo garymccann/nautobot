@@ -97,6 +97,34 @@ class ObjectLockSchemaFieldsTestCase(_GraphQLTestMixin, TestCase):
         self.assertTrue(row["is_locked"])  # boolean still visible
         self.assertEqual(row["locks"], [])  # richer metadata gated off
 
+    def test_locked_fields_resolver_gated_by_view_permission(self):
+        """locked_fields lists frozen names for a privileged user and is empty ([]) for a gated user."""
+        field_locked = Manufacturer.objects.create(name="GQL FieldLocked")
+        ObjectLock.objects.create(
+            content_type=self.ct,
+            object_id=field_locked.pk,
+            prevent_update=True,
+            locked_fields=["description"],
+            reason="field freeze",
+            source_key="gql-field",
+            expires=self.expiry,
+        )
+        query = '{ manufacturers(name: "GQL FieldLocked") { is_locked locked_fields } }'
+
+        privileged = self._execute(query, self.superuser)
+        self.assertNotIn("errors", privileged, privileged.get("errors"))
+        self.assertEqual(privileged["data"]["manufacturers"][0]["locked_fields"], ["description"])
+
+        viewer = User.objects.create_user(username="gql-fields-viewer")
+        perm = ObjectPermission.objects.create(name="view mfr fields gql", actions=["view"])
+        perm.object_types.set([self.ct])
+        perm.users.add(viewer)
+        gated = self._execute(query, viewer)
+        self.assertNotIn("errors", gated, gated.get("errors"))
+        row = gated["data"]["manufacturers"][0]
+        self.assertTrue(row["is_locked"])  # boolean still visible
+        self.assertEqual(row["locked_fields"], [])  # frozen-field list gated off
+
 
 class ObjectLockGraphQLQueryCountTestCase(_GraphQLTestMixin, TestCase):
     @classmethod

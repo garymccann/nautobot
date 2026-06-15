@@ -202,3 +202,15 @@ queryset `.delete()` still fires per-instance `pre_delete`, so deletion is enfor
 context (UI/REST/Job), though it still bypasses from the shell/migrations like the other raw paths.
 Treat the lint as a tripwire for the specific raw-bulk methods it names, not as proof the entire
 boundary is sealed.
+
+## Sweep and change logging
+
+The Object Lock Sweep removes records with a bulk `QuerySet.delete()`. The global change-log
+`pre_delete` receiver (`_handle_deleted_object`) disables Django's fast-delete path app-wide — the same
+property that keeps bulk deletes *enforced* — so the sweep fires a per-row `pre_delete`. Running as the
+**`ObjectLockSweep` Job** (inside a change context), each removed lock is therefore change-logged: one
+`ObjectChange` per record, so a run that reaps N locks writes N entries.
+
+Calling the underlying `purge_expired_and_orphaned_locks()` function **directly** (from `nbshell`, a
+migration, or a test helper) runs with no change context, so `_handle_deleted_object` short-circuits
+and those deletions are **not** change-logged — consistent with the out-of-band ORM bypass.

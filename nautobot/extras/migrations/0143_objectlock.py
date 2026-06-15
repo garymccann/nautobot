@@ -99,7 +99,7 @@ class Migration(migrations.Migration):
                 ),
                 ("time", models.DateTimeField(auto_now_add=True, db_index=True)),
                 ("action", models.CharField(default="bypass", max_length=50)),
-                ("object_id", models.UUIDField()),
+                ("object_id", models.UUIDField(db_index=True)),
                 ("change_id", models.UUIDField(blank=True, null=True)),
                 ("suspended_source_keys", models.JSONField(default=list)),
                 ("suspended_fields", models.JSONField(default=list)),

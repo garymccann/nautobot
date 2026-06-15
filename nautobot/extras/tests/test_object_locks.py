@@ -1,14 +1,18 @@
 """Tests for Object Lock core enforcement."""
 
 from datetime import timedelta
+from unittest import mock
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection, transaction
 from django.db.models import ProtectedError
 from django.db.utils import IntegrityError
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 import redis.exceptions
 
@@ -17,6 +21,7 @@ from nautobot.dcim.models import Manufacturer
 from nautobot.extras.choices import ObjectChangeEventContextChoices, ObjectLockModeChoices
 from nautobot.extras.context_managers import web_request_context
 from nautobot.extras.factory import ObjectLockFactory
+from nautobot.extras.jobs_object_lock_sweep import purge_expired_and_orphaned_locks
 from nautobot.extras.locking import (
     _current_token,
     _GATE_SNAPSHOT_ATTR,
@@ -29,9 +34,10 @@ from nautobot.extras.locking import (
     is_bypass_active,
     ObjectLockedError,
 )
-from nautobot.extras.models import ObjectLock
+from nautobot.extras.models import ObjectLock, ScheduledJobs
 from nautobot.extras.models.object_locks import ObjectLockBypassAudit
-from nautobot.extras.signals import change_context_state
+from nautobot.extras.signals import _object_lock_enforce_update, change_context_state
+from nautobot.users.models import ObjectPermission
 
 
 class ObjectLockedErrorTestCase(TestCase):
@@ -190,8 +196,6 @@ class ObjectLockManagerTestCase(TestCase):
 
     def test_cross_owner_source_key_reuse_is_blocked(self):
         """Reusing another source's source_key to weaken its claim requires force_release."""
-        from django.core.exceptions import ValidationError
-
         other = get_user_model().objects.create_user(username="ol-other-owner")
         ObjectLock.objects.lock(self.m1, prevent_delete=True, source_key="shared", requesting_user=other)
         with self.assertRaises(ValidationError):
@@ -219,8 +223,6 @@ class ObjectLockManagerTestCase(TestCase):
         self.assertEqual(refreshed.created_by, other)  # original owner preserved, not the forcer
 
     def test_lock_rejects_non_uuid_pk_target(self):
-        from nautobot.extras.models import ScheduledJobs
-
         bad = ScheduledJobs(ident=1)
         with self.assertRaises(TypeError):
             ObjectLock.objects.lock(bad, requesting_user=self.user)
@@ -397,9 +399,6 @@ class GateSnapshotPerRequestTestCase(TestCase):
                 delattr(ctx, _GATE_SNAPSHOT_ATTR)
 
             # Count queries for the first call alone (token check + possible cache rebuild).
-            from django.db import connection
-            from django.test.utils import CaptureQueriesContext
-
             with CaptureQueriesContext(connection) as first_call_ctx:
                 gate_first = get_gate()
 
@@ -425,9 +424,6 @@ class GateSnapshotPerRequestTestCase(TestCase):
             # Subsequent calls: snapshot present, zero additional queries.
             # We measure the TOTAL query count for 5 enforce calls and assert it equals
             # the first-call cost (proving calls 2-5 are free).
-            from django.db import connection
-            from django.test.utils import CaptureQueriesContext
-
             with CaptureQueriesContext(connection) as ctx_queries:
                 for obj in [self.m1, self.m2, self.m3]:
                     enforce_object_lock(Manufacturer, obj, GATE_MODE_DELETE)
@@ -470,9 +466,6 @@ class GateSnapshotPerRequestTestCase(TestCase):
         """Without an active change context, get_gate() computes fresh on each call (out-of-band path)."""
         # Verify there is truly no context active.
         self.assertIsNone(change_context_state.get())
-
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
 
         # Call get_gate() twice; each should issue queries (no caching on None context).
         with CaptureQueriesContext(connection) as first:
@@ -534,8 +527,6 @@ class ObjectLockSignalEnforcementTestCase(TestCase):
         invalidate_gate_cache()
 
     def test_delete_blocked_when_delete_locked(self):
-        from django.db import transaction
-
         mfg = Manufacturer.objects.create(name="Sig Delete Mfg")
         ObjectLock.objects.lock(mfg, prevent_delete=True, requesting_user=self.user)
         invalidate_gate_cache()
@@ -758,8 +749,6 @@ class ObjectLockSweepTestCase(TestCase):
         cls.user = get_user_model().objects.create_user(username="sweep-user", is_superuser=True)
 
     def _run_sweep(self):
-        from nautobot.extras.jobs_object_lock_sweep import purge_expired_and_orphaned_locks
-
         return purge_expired_and_orphaned_locks()
 
     def test_expired_lock_is_purged(self):
@@ -792,8 +781,6 @@ class ObjectLockSweepTestCase(TestCase):
 
     def test_per_content_type_failure_does_not_abort_sweep(self):
         """A failure purging one content type is logged + counted, not propagated."""
-        from unittest import mock
-
         mfg = Manufacturer.objects.create(name="Sweep Fail Mfg")
         ObjectLock.objects.lock(mfg, source_key="f", requesting_user=self.user)
         Manufacturer.objects.filter(pk=mfg.pk).delete()  # orphan it
@@ -808,20 +795,14 @@ class ObjectLockSweepTestCase(TestCase):
 
 class ObjectLockAdminTestCase(TestCase):
     def test_objectlock_registered_in_admin(self):
-        from django.contrib import admin
-
         self.assertIn(ObjectLock, admin.site._registry)
 
     def test_bypass_audit_registered_in_admin(self):
         """The bypass audit must have a (read-only) admin surface."""
-        from django.contrib import admin
-
         self.assertIn(ObjectLockBypassAudit, admin.site._registry)
 
     def test_objectlock_admin_is_read_only(self):
         """Locks are view-only in admin; add/change/delete are disabled."""
-        from django.contrib import admin
-
         model_admin = admin.site._registry[ObjectLock]
         self.assertFalse(model_admin.has_add_permission(None))
         self.assertFalse(model_admin.has_change_permission(None))
@@ -859,9 +840,6 @@ class ObjectLockPerformanceTestCase(TestCase):
 
     def test_unlocked_type_write_does_no_object_lock_query(self):
         """Enforcing a write on an unlocked-type object hits the gate (set test) but issues no lock-records query."""
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         with web_request_context(self.user):
             mfg = Manufacturer.objects.create(name="Perf Warm Mfg")
             # Warm the per-request gate snapshot so the generation-token read is already amortized;
@@ -891,11 +869,6 @@ class ObjectLockPerformanceTestCase(TestCase):
     @override_settings(OBJECT_LOCK_ENFORCED=False)
     def test_kill_switch_skips_gate_entirely(self):
         """With the kill switch off, the receiver reads NOTHING object-lock-related — not even the gate token."""
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
-        from nautobot.extras.signals import _object_lock_enforce_update
-
         with web_request_context(self.user):
             mfg = Manufacturer.objects.create(name="Perf Kill Mfg")
             with CaptureQueriesContext(connection) as ctx:
@@ -918,9 +891,6 @@ class ObjectLockPerformanceTestCase(TestCase):
         later decision reuses it.  Without the snapshot we would expect one generation-token read
         per decision (here N reads); with it we expect <= 1 read amortized across all of them.
         """
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         # No locks exist, so every decision hits the "not in gate" fast path. Three distinct
         # objects, each enforced for both modes => 6 enforcement decisions in ONE request.
         mfgs = [Manufacturer.objects.create(name=f"Perf Snapshot Mfg {i}") for i in range(3)]
@@ -957,9 +927,6 @@ class ObjectLockPerformanceTestCase(TestCase):
         the change-log serializer actually runs) to prove the serializer skips the query even when a
         live claim exists.
         """
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         mfg = Manufacturer.objects.create(name="Perf ChangeLog Mfg")
         # Lock for DELETE only (prevent_update=False) so the save() is NOT blocked by enforcement;
         # we want the changelogged save to proceed and exercise the change-log serializer.
@@ -1014,8 +981,6 @@ class ObjectLockDetailAffordanceRenderTestCase(TestCase):
         )
 
     def _grant(self, user, *actions):
-        from nautobot.users.models import ObjectPermission
-
         for action in actions:
             perm = ObjectPermission.objects.create(name=f"m3-{action}-{user.pk}", actions=[action])
             perm.object_types.set([self.ct])
