@@ -38,7 +38,8 @@
                                 <button type="button"
                                         class="btn btn-sm btn-danger object-lock-release-btn"
                                         data-lock-id="{{ claim.pk }}"
-                                        data-release-url="{{ claim.release_url }}">
+                                        data-release-url="{{ claim.release_url }}"
+                                        {% if not claim.is_own %}data-object-lock-force="true"{% endif %}>
                                     {% if claim.is_own %}Release{% else %}Force release{% endif %}
                                 </button>
                             {% else %}

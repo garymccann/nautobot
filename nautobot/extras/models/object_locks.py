@@ -182,6 +182,10 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
                 force_release_objectlock.
         """
         self._validate_target(obj)
+        if not prevent_delete and not prevent_update:
+            raise ValidationError(
+                "An Object Lock must prevent at least one of delete or update (a no-op lock protects nothing)."
+            )
         if locked_fields:
             # Reject locked_fields names that are not real fields / custom-field keys,
             # independent of the model clean() (callers may use bare save()).
@@ -402,6 +406,10 @@ class ObjectLock(ChangeLoggedModel, BaseModel):
                 key of the target model.
         """
         super().clean()
+        if not self.prevent_delete and not self.prevent_update:
+            raise ValidationError(
+                "An Object Lock must prevent at least one of delete or update (a no-op lock protects nothing)."
+            )
         model = self.content_type.model_class() if self.content_type_id else None
         if model is not None and self.locked_fields:
             self.locked_fields = validate_locked_field_names(model, self.locked_fields)

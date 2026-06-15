@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import json
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -495,9 +496,8 @@ class ObjectLockFactory(BaseModelFactory):
         has_expiry = factory.Faker("pybool")
 
     content_type = factory.LazyFunction(lambda: ContentType.objects.get_for_model(Manufacturer))
-    object_id = factory.LazyFunction(
-        lambda: Manufacturer.objects.create(name=factory.Faker("company").evaluate(None, None, {"locale": None})).pk
-    )
+    # Manufacturer.name is unique; use a UUID-suffixed name so repeated factory runs never collide.
+    object_id = factory.LazyFunction(lambda: Manufacturer.objects.create(name=f"Object Lock Target {uuid.uuid4()}").pk)
     prevent_delete = True
     prevent_update = factory.Faker("pybool")
     source_context = ObjectChangeEventContextChoices.CONTEXT_ORM

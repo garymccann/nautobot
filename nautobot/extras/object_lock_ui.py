@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from django import forms
+from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 from django.utils.html import format_html
@@ -45,6 +46,8 @@ def lock_state_for_objects(objects):
     Returns:
         dict: ``{object_pk: LockState}`` for locked objects only.
     """
+    if not settings.OBJECT_LOCK_ENFORCED:
+        return {}  # kill switch: the whole feature (enforcement + surfacing) is off
     objects = list(objects)
     if not objects:
         return {}

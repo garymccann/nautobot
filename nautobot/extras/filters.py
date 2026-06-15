@@ -658,32 +658,37 @@ class ObjectLockableFilterSetMixin(django_filters.FilterSet):
             qs = qs.filter(**extra_filter)
         return qs
 
-    def _apply_lock_filter(self, queryset, value, extra_filter=None):
+    def _apply_lock_filter(self, queryset, value, extra_filter=None, alias="_ol_exists"):
         """Annotate *queryset* with an EXISTS subquery and filter to value.
 
         Args:
             queryset: The queryset to filter.
             value: Boolean — True keeps locked objects, False keeps unlocked objects.
             extra_filter: Forwarded to :meth:`_active_lock_subquery`.
+            alias: Annotation alias. Must be unique per filter — django_filters applies filters
+                sequentially on the same queryset, so a shared alias would collide (and 500) when two
+                lock filters are combined (e.g. ``?is_locked=true&locked_for_update=true``).
 
         Returns:
             Filtered queryset, or *queryset* unchanged if *value* is None.
         """
         if value is None:
             return queryset
-        return queryset.annotate(_ol_exists=Exists(self._active_lock_subquery(extra_filter))).filter(_ol_exists=value)
+        if not settings.OBJECT_LOCK_ENFORCED:
+            return queryset.none() if value else queryset  # kill switch: nothing is "locked"
+        return queryset.annotate(**{alias: Exists(self._active_lock_subquery(extra_filter))}).filter(**{alias: value})
 
     def _filter_is_locked(self, queryset, name, value):
         """Filter objects that have (True) or lack (False) any active lock."""
-        return self._apply_lock_filter(queryset, value)
+        return self._apply_lock_filter(queryset, value, alias="_ol_locked_any")
 
     def _filter_locked_for_delete(self, queryset, name, value):
         """Filter objects that are (True) or are not (False) actively locked for delete."""
-        return self._apply_lock_filter(queryset, value, {"prevent_delete": True})
+        return self._apply_lock_filter(queryset, value, {"prevent_delete": True}, alias="_ol_locked_delete")
 
     def _filter_locked_for_update(self, queryset, name, value):
         """Filter objects that are (True) or are not (False) actively locked for update."""
-        return self._apply_lock_filter(queryset, value, {"prevent_update": True})
+        return self._apply_lock_filter(queryset, value, {"prevent_update": True}, alias="_ol_locked_update")
 
 
 #

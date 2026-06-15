@@ -54,6 +54,13 @@ object_lock_sweep_failed_content_types_counter = Counter(
     name="nautobot_object_lock_sweep_failed_content_types_total",
     documentation="Number of content types that failed during an Object Lock sweep (alert on a rising rate).",
 )
+object_lock_bypass_audit_failures_counter = Counter(
+    name="nautobot_object_lock_bypass_audit_failures_total",
+    documentation=(
+        "Number of Object Lock bypass-audit writes that failed. A non-zero value means a bypass was "
+        "permitted without a durable audit row — alert on any increase for compliance."
+    ),
+)
 
 
 class _AllFieldsFrozen:
@@ -179,7 +186,9 @@ def _compute_gate():
             cache.set(_GATE_CACHE_KEY, gate, timeout=_jittered_ttl())
             cache.set(_GATE_GENERATION_CACHE_KEY, db_token, timeout=_jittered_ttl())
             return gate
-    except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+    except (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.LockError):
+        # LockError = could not acquire the rebuild lock within blocking_timeout; fall back to an
+        # uncached DB build rather than 500 the request.
         logger.warning("Object Lock gate rebuild could not use cache; rebuilding from database directly.")
         object_lock_gate_unreadable_counter.inc()
         return _build_gate_from_db()
@@ -250,11 +259,17 @@ def build_locked_message(claims, mode):
     Returns:
         A human-readable string explaining why the operation was blocked and what to do.
     """
-    sources = ", ".join(sorted({c.source_key for c in claims})) or "an unknown source"
     verb = "deleted" if mode == GATE_MODE_DELETE else "modified"
+    sources = ", ".join(sorted({c.source_key for c in claims})) or "an unknown source"
+    # Lead with the operator-meaningful "why" (reason, then source_detail), keeping the technical
+    # source_key as a secondary identifier so a UUID auto-key isn't all the user sees.
+    why = ", ".join(sorted({c.reason for c in claims if c.reason})) or ", ".join(
+        sorted({c.source_detail for c in claims if c.source_detail})
+    )
+    identity = f"reason: {why}; source(s): {sources}" if why else f"source(s): {sources}"
     return (
         f"This object cannot be {verb} because it is held by an Object Lock "
-        f"(mode: {mode}; source(s): {sources}). "
+        f"(mode: {mode}; {identity}). "
         f"Release the lock or contact an administrator to release it."
     )
 
@@ -446,6 +461,7 @@ def _write_bypass_audit(claims, content_type_id, instance):
             change_id,
         )
     except Exception:
+        object_lock_bypass_audit_failures_counter.inc()
         logger.exception(
             "Failed to write ObjectLockBypassAudit for object=%s(%s); bypass was still permitted.",
             type(instance).__name__,

@@ -3983,7 +3983,7 @@ class ObjectLockUIViewSet(
     ownership), so the same per-claim ownership rule is enforced here in ``check_permissions``.
     """
 
-    queryset = ObjectLock.objects.all()
+    queryset = ObjectLock.objects.select_related("content_type", "created_by").prefetch_related("locked_object")
     serializer_class = serializers.ObjectLockSerializer
     table_class = tables.ObjectLockTable
     filterset_class = filters.ObjectLockFilterSet

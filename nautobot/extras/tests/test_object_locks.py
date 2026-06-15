@@ -199,7 +199,9 @@ class ObjectLockManagerTestCase(TestCase):
         other = get_user_model().objects.create_user(username="ol-other-owner")
         ObjectLock.objects.lock(self.m1, prevent_delete=True, source_key="shared", requesting_user=other)
         with self.assertRaises(ValidationError):
-            ObjectLock.objects.lock(self.m1, prevent_delete=False, source_key="shared", requesting_user=self.user)
+            ObjectLock.objects.lock(
+                self.m1, prevent_delete=False, prevent_update=True, source_key="shared", requesting_user=self.user
+            )
         # The original claim is untouched — still owned by `other`, still delete-locked.
         claim = ObjectLock.objects.for_object(self.m1).get(source_key="shared")
         self.assertEqual(claim.created_by, other)
@@ -218,7 +220,9 @@ class ObjectLockManagerTestCase(TestCase):
         other = get_user_model().objects.create_user(username="ol-other-owner-2")
         ObjectLock.objects.lock(self.m2, prevent_delete=True, source_key="shared2", requesting_user=other)
         forcer = get_user_model().objects.create_superuser(username="ol-forcer")
-        refreshed = ObjectLock.objects.lock(self.m2, prevent_delete=False, source_key="shared2", requesting_user=forcer)
+        refreshed = ObjectLock.objects.lock(
+            self.m2, prevent_delete=False, prevent_update=True, source_key="shared2", requesting_user=forcer
+        )
         self.assertFalse(refreshed.prevent_delete)
         self.assertEqual(refreshed.created_by, other)  # original owner preserved, not the forcer
 

@@ -177,50 +177,6 @@ class BulkDestroyModelMixin:
 #
 
 
-def _object_locked_response(exc, request):
-    """Build the 409 body for a blocked write, honoring ``extras.view_objectlock`` (no metadata leak without it).
-
-    Args:
-        exc: The ``ObjectLockedError`` instance that was raised.
-        request: The DRF request object.
-
-    Returns:
-        A DRF ``Response`` with HTTP 409 Conflict status.
-    """
-    from nautobot.extras.locking import GATE_MODE_DELETE, GATE_MODE_UPDATE
-    from nautobot.extras.models import ObjectLock
-
-    user = getattr(request, "user", None)
-    can_view = user is not None and user.has_perm("extras.view_objectlock")
-    body = {"error_code": "object_locked"}
-    if can_view:
-        # The precise frozen field name(s) whose change triggered this block.
-        body["offending_fields"] = list(getattr(exc, "offending_fields", []))
-        instance = next(iter(getattr(exc, "protected_objects", []) or []), None)
-        if instance is not None:
-            ct = ContentType.objects.get_for_model(instance)
-            claims = [
-                {
-                    "source_key": c.source_key,
-                    "prevent_delete": c.prevent_delete,
-                    "prevent_update": c.prevent_update,
-                    "reason": c.reason,
-                    "locked_fields": c.locked_fields,
-                }
-                for c in ObjectLock.objects.filter(content_type=ct, object_id=instance.pk).active()
-            ]
-            modes = sorted(
-                {GATE_MODE_DELETE for c in claims if c["prevent_delete"]}
-                | {GATE_MODE_UPDATE for c in claims if c["prevent_update"]}
-            )
-            body["detail"] = str(exc)
-            body["modes"] = modes
-            body["locks"] = claims
-    else:
-        body["detail"] = "This object is locked and cannot be modified or deleted."
-    return Response(body, status=status.HTTP_409_CONFLICT)
-
-
 class ModelViewSetMixin:
     logger = logging.getLogger(__name__ + ".ModelViewSet")
 
@@ -373,7 +329,10 @@ class ModelViewSetMixin:
 
             if isinstance(exc, ObjectLockedError):
                 self.logger.warning("Write blocked by Object Lock: %s", exc)
-                return self.finalize_response(request, _object_locked_response(exc, request), *args, **kwargs)
+                # Thin hook: the 409-body logic lives in extras (lazy import — core must not import extras at module load).
+                from nautobot.extras.api.object_locks import build_object_locked_response
+
+                return self.finalize_response(request, build_object_locked_response(exc, request), *args, **kwargs)
 
             protected_objects = list(exc.protected_objects)
             msg = f"Unable to delete object. {len(protected_objects)} dependent objects were found: "

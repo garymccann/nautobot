@@ -170,7 +170,7 @@ def extend_schema_type(schema_type):
     # would recurse.
     #
     if model._meta.label_lower != "extras.objectlock":
-        from nautobot.core.graphql.object_lock import extend_schema_type_object_lock
+        from nautobot.extras.graphql.object_lock import extend_schema_type_object_lock
 
         schema_type = extend_schema_type_object_lock(schema_type)
 

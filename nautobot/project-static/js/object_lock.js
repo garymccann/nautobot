@@ -47,6 +47,14 @@
       }
       btn.dataset.objectLockWired = "true";
       btn.addEventListener("click", function () {
+        // Force-release destroys another source's lock irreversibly; require explicit confirmation
+        // (parity with the bulk-release confirmation page).
+        if (
+          btn.dataset.objectLockForce === "true" &&
+          !window.confirm("Force-release this lock held by another source? This cannot be undone.")
+        ) {
+          return;
+        }
         var url = btn.dataset.releaseUrl;
         var csrf = document.querySelector("input[name=csrfmiddlewaretoken]");
         var token = csrf ? csrf.value : "";
@@ -103,12 +111,12 @@
       countEl.textContent = String(remaining);
     }
     if (remaining === 0) {
-      // Enable the blocked controls in place.
-      document.querySelectorAll("[data-object-lock-blocked]").forEach(function (el) {
-        el.setAttribute("aria-disabled", "false");
-        el.classList.remove("disabled");
-      });
-      region.textContent = "0 lock(s) remaining. You may now proceed.";
+      // Reload so the server re-renders the now-unblocked Edit/Delete controls with their real URLs
+      // (this script doesn't carry them). The brief message lets the aria-live region announce first.
+      region.textContent = "0 lock(s) remaining. Reloading…";
+      window.setTimeout(function () {
+        window.location.reload();
+      }, 800);
     } else if (region.dataset.blockingOthers === "true" && allRemainingHeldByOthers()) {
       // 3. Mixed-ownership terminal state: counter cannot reach zero.
       var sources = remainingOtherSources();

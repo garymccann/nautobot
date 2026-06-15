@@ -9,6 +9,7 @@ across many objects costs one query per content type rather than N.
 from collections import defaultdict
 import logging
 
+from django.conf import settings
 import graphene
 
 from nautobot.extras.models import ObjectLock
@@ -32,6 +33,8 @@ def claims_for_object(request, content_type_id, object_id):
     Returns:
         list: Active ObjectLock instances for the object (empty list when unlocked).
     """
+    if not settings.OBJECT_LOCK_ENFORCED:
+        return []  # kill switch: the whole feature (enforcement + surfacing) is off
     cache = getattr(request, "_object_lock_claims_cache", None)
     if cache is None:
         cache = {}

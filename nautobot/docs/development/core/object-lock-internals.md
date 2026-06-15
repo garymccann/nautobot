@@ -132,9 +132,9 @@ otherwise-blocked write the bypass lets through — not on context-manager entry
 | Surface | Where | Notes |
 | --- | --- | --- |
 | Programmatic | `ObjectLockManager` (`models/object_locks.py`) | `lock()` / `release()` / `locked()` |
-| REST API | `api/object_locks.py` | `ObjectLockableSerializerMixin` adds read-only `is_locked` / `locked_for_*` / `locked_fields`; `ObjectLockableModelViewSetMixin` adds POST `lock` / `release` actions; blocked writes return a gated 409 (`_object_locked_response` in `core/api/views.py`) |
+| REST API | `api/object_locks.py` | `ObjectLockableSerializerMixin` adds read-only `is_locked` / `locked_for_*` / `locked_fields`; `ObjectLockableModelViewSetMixin` adds POST `lock` / `release` actions; blocked writes return a gated 409 (`build_object_locked_response` in `api/object_locks.py`, invoked from a thin hook in `core/api/views.py`) |
 | Web UI | `object_lock_ui.py`, `template_content.py`, `core/tables.py`, `object_retrieve.html` | List glyph, detail banner + Locks panel, per-mode blocked Edit/Delete affordances |
-| GraphQL | `core/graphql/object_lock.py` | `is_locked` / `locked_for_*` / `locked_fields` / `locks` |
+| GraphQL | `graphql/object_lock.py` (extras; invoked by `core/graphql/schema.py` via a thin lazy import) | `is_locked` / `locked_for_*` / `locked_fields` / `locks` |
 | System Jobs | `jobs_object_lock_sweep.py`, `core/jobs/object_lock_bulk.py` | Sweep of expired/orphaned locks; bulk lock/release |
 | Bypass / audit | `locking.py` (`bypass_object_lock`), `admin.py` (`ObjectLockBypassAuditAdmin`) | Programmatic-only bypass; `ObjectLockBypassAudit` rows are read-only in the Django admin |
 

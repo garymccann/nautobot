@@ -1,5 +1,6 @@
 """REST API serializer and viewset mixin for ObjectLock."""
 
+from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
@@ -34,6 +35,52 @@ def _batch_active_lock_claims(objects):
     return claims_by_pk
 
 
+def build_object_locked_response(exc, request):
+    """Build the 409 body for a blocked write, honoring ``extras.view_objectlock`` (no metadata leak without it).
+
+    Called from a thin hook in ``nautobot.core.api.views`` (which catches the cross-cutting
+    ``ObjectLockedError``) so this Object-Lock logic lives in extras, not core.
+
+    Args:
+        exc: The ``ObjectLockedError`` instance that was raised.
+        request: The DRF request object.
+
+    Returns:
+        A DRF ``Response`` with HTTP 409 Conflict status.
+    """
+    from nautobot.extras.locking import GATE_MODE_DELETE, GATE_MODE_UPDATE
+
+    user = getattr(request, "user", None)
+    can_view = user is not None and user.has_perm("extras.view_objectlock")
+    body = {"error_code": "object_locked"}
+    if can_view:
+        # The precise frozen field name(s) whose change triggered this block.
+        body["offending_fields"] = list(getattr(exc, "offending_fields", []))
+        instance = next(iter(getattr(exc, "protected_objects", []) or []), None)
+        if instance is not None:
+            ct = ContentType.objects.get_for_model(instance)
+            claims = [
+                {
+                    "source_key": c.source_key,
+                    "prevent_delete": c.prevent_delete,
+                    "prevent_update": c.prevent_update,
+                    "reason": c.reason,
+                    "locked_fields": c.locked_fields,
+                }
+                for c in ObjectLock.objects.filter(content_type=ct, object_id=instance.pk).active()
+            ]
+            modes = sorted(
+                {GATE_MODE_DELETE for c in claims if c["prevent_delete"]}
+                | {GATE_MODE_UPDATE for c in claims if c["prevent_update"]}
+            )
+            body["detail"] = str(exc)
+            body["modes"] = modes
+            body["locks"] = claims
+    else:
+        body["detail"] = "This object is locked and cannot be modified or deleted."
+    return Response(body, status=drf_status.HTTP_409_CONFLICT)
+
+
 class ObjectLockableSerializerMixin(drf_serializers.Serializer):
     """Adds read-only lock-state fields to a model serializer.
 
@@ -62,6 +109,8 @@ class ObjectLockableSerializerMixin(drf_serializers.Serializer):
         Returns:
             list: Active ObjectLock instances, or an empty list when serialized without a request.
         """
+        if not settings.OBJECT_LOCK_ENFORCED:
+            return []  # kill switch: surface no lock state when the feature is off
         if self.context.get("request") is None:
             return []
         cache = self.context.get("_object_lock_claims")

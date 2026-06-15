@@ -5,6 +5,11 @@ modified** until the lock is released. It is a safety/integrity feature that pre
 removal or modification of objects something depends on — for example, an SSoT run that needs a
 `Manufacturer` to persist for the duration of a sync.
 
+**Scope in this release:** enforcement is **global** — a lock on any UUID-PK object is honored, and the
+bulk **Lock/Release** list actions appear on every lockable model. The REST lock-state fields
+(`is_locked`, `locked_for_delete`, …) and the edit-form frozen-field behavior are wired on
+**`Manufacturer`** as the reference integration.
+
 ## What Object Lock does and does not protect
 
 Enforcement applies to changes made through the **Web UI, the REST API, and Jobs** — every path
@@ -127,7 +132,9 @@ with bypass_object_lock():
 ```
 
 The context manager re-checks the permission on every entry and raises `PermissionDenied` if the
-active change-context user lacks it. Every bypass writes a durable `ObjectLockBypassAudit` record.
+active change-context user lacks it. Every bypass writes an `ObjectLockBypassAudit` record **in the same
+transaction as the write it permits** — the audit and the change commit (or roll back) together, so there
+is never a committed bypass without its audit row.
 
 Bypass is **programmatic only** — there is no UI or REST API affordance for it in this release; it is
 for trusted code paths (Jobs, SSoT, the shell). The `ObjectLockBypassAudit` records are reviewable by
@@ -150,7 +157,7 @@ Grant `add_objectlock` narrowly — it is the trust boundary.
 
 | Setting | Environment variable | Default | Purpose |
 |---|---|---|---|
-| `OBJECT_LOCK_ENFORCED` | `NAUTOBOT_OBJECT_LOCK_ENFORCED` | `True` | Kill switch. Set `False` to disable enforcement without code changes (takes effect on restart). |
+| `OBJECT_LOCK_ENFORCED` | `NAUTOBOT_OBJECT_LOCK_ENFORCED` | `True` | Kill switch for the **whole feature**: `False` disables enforcement **and** all surfacing (glyphs, banners, `is_locked`/lock-state fields, filters, GraphQL). **Restart-only** (read at startup). |
 | `OBJECT_LOCK_DEFAULT_TTL` | `NAUTOBOT_OBJECT_LOCK_DEFAULT_TTL` | `86400` (24 h) | Default TTL (seconds) applied to programmatic locks when `expires` is omitted. |
 
 Both settings are read from environment variables at startup. To disable enforcement:
@@ -158,6 +165,11 @@ Both settings are read from environment variables at startup. To disable enforce
 ```bash
 NAUTOBOT_OBJECT_LOCK_ENFORCED=False
 ```
+
+With the kill switch off, Object Lock is fully dormant: no enforcement, and no surfacing either — no
+glyphs or banners, `is_locked` is absent from REST/GraphQL, and the lock-state filters report nothing
+locked. Because the value is read at startup, toggling it requires a **service restart** — treat it as a
+deploy-time control, not an in-incident live switch.
 
 ## Maintenance
 
@@ -174,7 +186,15 @@ expire), but the `extras_objectlock` table grows without bound. Alert on the
 `nautobot_object_lock_sweep_last_success_timestamp_seconds` metric so a sweep that has never run — or
 has silently stopped — is caught.
 
-### Upgrades and app uninstalls
+### Upgrade impact
+
+**Enforcement is global from the migration that adds Object Lock onward.** After upgrade, any existing
+Job, SSoT sync, or REST/UI client that writes to an object someone has locked starts receiving an
+`ObjectLockedError` (HTTP **409** over REST) where it previously succeeded. Before upgrading: identify
+automation that writes to lockable objects, decide whether it should be exempt, and grant it
+`extras.bypass_objectlock` (its writes are then audited) — or coordinate so it doesn't run against locked
+objects. Out-of-band ORM writes (nbshell, migrations, raw bulk operations) are **not** enforced and need
+no change.
 
 `ObjectLock` references its target's content type through a `PROTECT` foreign key, so a `ContentType`
 that still has lock records cannot be deleted. If you **uninstall an app** whose models hold locks,
