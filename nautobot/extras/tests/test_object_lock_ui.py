@@ -1,6 +1,7 @@
 from datetime import timedelta
 from unittest import mock
 
+from django import forms as django_forms
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import connection
@@ -16,6 +17,7 @@ from nautobot.extras.object_lock_ui import (
     LOCK_GLYPHS,
     lock_state_for_objects,
     LockState,
+    ObjectLockQuickFilterFormMixin,
     render_lock_glyph,
     summarize_modes,
     user_can_view_lock_metadata,
@@ -396,10 +398,6 @@ class LockGlyphOverAvailableRowsTestCase(TestCase):
 
 class ObjectLockQuickFilterFormTestCase(TestCase):
     def test_mixin_adds_is_locked_boolean_field(self):
-        from django import forms as django_forms
-
-        from nautobot.extras.object_lock_ui import ObjectLockQuickFilterFormMixin
-
         class _Form(ObjectLockQuickFilterFormMixin, django_forms.Form):
             pass
 
@@ -411,10 +409,6 @@ class ObjectLockQuickFilterFormTestCase(TestCase):
         self.assertEqual(field.label, "Locked")
 
     def test_field_filters_to_locked_only_when_true(self):
-        from django import forms as django_forms
-
-        from nautobot.extras.object_lock_ui import ObjectLockQuickFilterFormMixin
-
         class _Form(ObjectLockQuickFilterFormMixin, django_forms.Form):
             pass
 

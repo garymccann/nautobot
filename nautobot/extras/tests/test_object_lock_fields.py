@@ -1,13 +1,18 @@
 """Tests for Object Lock field-level locking."""
 
+from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.urls import reverse
 from rest_framework import status
 
 from nautobot.core.testing import APITestCase, TestCase
-from nautobot.dcim.models import Location, LocationType, Manufacturer
-from nautobot.extras.context_managers import web_request_context
+from nautobot.dcim.forms import ManufacturerForm
+from nautobot.dcim.models import Location, LocationType, Manufacturer, Platform
+from nautobot.extras.choices import CustomFieldTypeChoices
+from nautobot.extras.context_managers import ORMChangeContext, web_request_context
+from nautobot.extras.forms.forms import LockedFieldsFormMixin
 from nautobot.extras.locking import (
     ALL_FIELDS_FROZEN,
     bypass_object_lock,
@@ -16,7 +21,8 @@ from nautobot.extras.locking import (
     get_frozen_fields_for_object,
     ObjectLockedError,
 )
-from nautobot.extras.models import ObjectLock, Status, Tag
+from nautobot.extras.models import CustomField, ObjectLock, ObjectLockBypassAudit, Status, Tag
+from nautobot.extras.signals import change_context_state
 
 User = get_user_model()
 
@@ -201,9 +207,6 @@ class ObjectLockChangedFieldsTestCase(TestCase):
         self.assertEqual(changed, set())
 
     def test_snapshot_path_detects_changed_field(self):
-        from nautobot.extras.context_managers import ORMChangeContext
-        from nautobot.extras.signals import change_context_state
-
         m = Manufacturer.objects.create(name="DiffC", description="orig")
         # Simulate a present pre-save snapshot keyed by str(pk).
         ctx = ORMChangeContext(user=self.user)
@@ -229,10 +232,6 @@ class ObjectLockChangedFieldsTestCase(TestCase):
         instance's FK ``_id`` the same way, so an unchanged FK must NOT false-positive (which would
         block legitimate edits to other fields), while a genuine reassignment must be caught.
         """
-        from nautobot.dcim.models import Platform
-        from nautobot.extras.context_managers import ORMChangeContext
-        from nautobot.extras.signals import change_context_state
-
         mfg_a = Manufacturer.objects.create(name="FKa")
         mfg_b = Manufacturer.objects.create(name="FKb")
         platform = Platform.objects.create(name="FKplat", manufacturer=mfg_a)
@@ -344,9 +343,6 @@ class ObjectLockFieldClassificationTestCase(TestCase):
         self.assertEqual(m.description, "edited")
 
     def test_custom_field_lock_does_not_crash_and_freezes(self):
-        from nautobot.extras.choices import CustomFieldTypeChoices
-        from nautobot.extras.models import CustomField
-
         cf = CustomField.objects.create(type=CustomFieldTypeChoices.TYPE_TEXT, key="lock_test_cf", label="Lock Test CF")
         cf.content_types.set([ContentType.objects.get_for_model(Manufacturer)])
         m = Manufacturer.objects.create(name="CfA", description="keep")
@@ -390,8 +386,6 @@ class ObjectLockBypassFieldAuditTestCase(TestCase):
         self.assertEqual(m.description, "bypassed")
 
     def test_bypass_audit_notes_suspended_fields(self):
-        from nautobot.extras.models import ObjectLockBypassAudit
-
         other = User.objects.create_user(username="other-locker")
         m = Manufacturer.objects.create(name="ByB", description="keep")
         with web_request_context(other):
@@ -473,9 +467,6 @@ class ObjectLockCustomFieldEnforcementTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from nautobot.extras.choices import CustomFieldTypeChoices
-        from nautobot.extras.models import CustomField
-
         cls.superuser = User.objects.create_user(username="cfadmin", is_superuser=True)
         ct = ContentType.objects.get_for_model(Manufacturer)
         cls.cf_frozen = CustomField.objects.create(
@@ -589,8 +580,6 @@ class ObjectLock409FieldExposureTestCase(APITestCase):
             )
 
     def _patch_description(self):
-        from django.urls import reverse
-
         url = reverse("dcim-api:manufacturer-detail", kwargs={"pk": self.manufacturer.pk})
         return self.client.patch(url, {"description": "new"}, format="json", **self.header)
 
@@ -614,10 +603,6 @@ class LockedFieldsFormMixinTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from django import forms
-
-        from nautobot.extras.forms.forms import LockedFieldsFormMixin
-
         class _SampleForm(LockedFieldsFormMixin, forms.Form):
             name = forms.CharField(required=False)
             description = forms.CharField(required=False)
@@ -644,8 +629,6 @@ class LockedFieldsFormMixinTestCase(TestCase):
 
     def test_manufacturer_form_auto_disables_frozen_field_from_lock(self):
         """A real edit form auto-resolves frozen fields from the bound instance's update lock."""
-        from nautobot.dcim.forms import ManufacturerForm
-
         user = User.objects.create_user(username="frozen-form-user")
         mfg = Manufacturer.objects.create(name="Frozen Form Mfg", description="orig")
         ObjectLock.objects.lock(
