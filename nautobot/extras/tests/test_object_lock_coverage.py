@@ -343,3 +343,72 @@ class ObjectLockM2MEarlyReturnTestCase(TestCase):
         with web_request_context(self.superuser):
             self.location.tags.add(self.tag)  # kill switch disables enforcement
         self.assertIn(self.tag, self.location.tags.all())
+
+
+class ObjectLockDefensiveGuardTestCase(TestCase):
+    """Group A — reachable defensive guards covered with real tests (no mocking)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="ol-cov-guard")
+
+    def test_find_stale_locked_fields_uninstalled_model(self):  # locking.py:636-639
+        from nautobot.extras.locking import find_stale_locked_fields
+
+        ghost_ct = ContentType.objects.create(app_label="ghostapp_stale", model="ghoststale")
+        lock = ObjectLock.objects.create(
+            content_type=ghost_ct,
+            object_id=uuid.uuid4(),
+            prevent_update=True,
+            locked_fields=["whatever"],
+            source_key="ghost-stale",
+        )
+        match = [entry for entry in find_stale_locked_fields() if entry["lock_id"] == lock.pk]
+        self.assertEqual(len(match), 1)
+        self.assertEqual(match[0]["stale_fields"], ["whatever"])  # uninstalled model -> every name stale
+
+    def test_lock_rejects_basemodel_with_non_uuid_pk(self):  # models/object_locks.py:126
+        instance = Manufacturer(name="NonUuidPk")
+        instance.pk = 123  # a BaseModel instance whose pk is not a UUID
+        with self.assertRaises(TypeError):
+            ObjectLock.objects.lock(instance, requesting_user=self.user)
+
+    def test_frozen_field_labels_uninstalled_model(self):  # models/object_locks.py:421
+        ghost_ct = ContentType.objects.create(app_label="ghostapp_lbl", model="ghostlbl")
+        lock = ObjectLock.objects.create(
+            content_type=ghost_ct,
+            object_id=uuid.uuid4(),
+            prevent_update=True,
+            locked_fields=["a", "b"],
+            source_key="ghost-lbl",
+        )
+        self.assertEqual(lock.frozen_field_labels(), ["a", "b"])  # no model -> raw stored names
+
+    def test_m2m_field_name_for_sender_no_match(self):  # signals.py:541
+        from nautobot.extras.signals import _m2m_field_name_for_sender
+
+        mfr = Manufacturer.objects.create(name="M2M NoMatch")
+        # An unrelated through model resolves to no field name on the instance.
+        self.assertIsNone(_m2m_field_name_for_sender(mfr, Tag.content_types.through))
+
+    def test_is_field_frozen_non_iterable_returns_false(self):  # forms/forms.py:2746-2747
+        class _SampleForm(LockedFieldsFormMixin, dj_forms.Form):
+            name = dj_forms.CharField(required=False)
+
+        form = _SampleForm(frozen_fields=123)  # non-iterable -> `in` raises TypeError -> False
+        self.assertFalse(form.is_field_frozen("name"))
+
+    def test_bulk_resolve_request_uninstalled_model_404(self):  # views.py:4860
+        from django.http import Http404
+
+        ghost_ct = ContentType.objects.create(app_label="ghostapp_view", model="ghostview")
+        view = views.ObjectLockBulkActionView()
+        request = RequestFactory().post("/", {"content_type": str(ghost_ct.pk)}, SERVER_NAME="nautobot.example.com")
+        with self.assertRaises(Http404):
+            view._resolve_request(request)
+
+    def test_glyph_wrap_is_idempotent(self):  # core/tables.py:371
+        from nautobot.dcim.tables import ManufacturerTable
+
+        table = ManufacturerTable(Manufacturer.objects.none())  # __init__ wraps the primary column once
+        table._wrap_primary_column_with_lock_glyph()  # a second call must no-op via the idempotency guard

@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from nautobot.core.api.authentication import TokenPermissions
 from nautobot.core.api.serializers import BaseModelSerializer
 from nautobot.extras.models import ObjectLock
-from nautobot.extras.models.object_locks import OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH, validate_locked_field_names
+from nautobot.extras.models.object_locks import OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH
 
 
 def _batch_active_lock_claims(objects):
@@ -167,21 +167,6 @@ class ObjectLockSerializer(BaseModelSerializer):
             "last_updated",
         ]
         read_only_fields = ["source_context", "source_detail", "source_key", "created_by"]
-
-    def validate(self, attrs):
-        """Validate `locked_fields` names against the target content type's model.
-
-        Raises `ValidationError` keyed on `locked_fields` (surfaced as a 400) so the API never
-        persists an unenforceable claim.
-        """
-        attrs = super().validate(attrs)
-        locked_fields = attrs.get("locked_fields")
-        content_type = attrs.get("content_type") or getattr(self.instance, "content_type", None)
-        if locked_fields and content_type is not None:
-            model = content_type.model_class()
-            if model is not None:
-                attrs["locked_fields"] = validate_locked_field_names(model, locked_fields)
-        return attrs
 
 
 class LockInputSerializer(drf_serializers.Serializer):
