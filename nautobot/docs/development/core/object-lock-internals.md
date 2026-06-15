@@ -168,6 +168,7 @@ on the standard Nautobot `/metrics` endpoint):
 | `nautobot_object_lock_gate_unreadable_total` | Counter | — | Times the gate was unreadable and rebuilt from an error (near-lapse alarm — alert if rising). |
 | `nautobot_object_lock_blocked_total` | Counter | `mode` (`update`/`delete`) | Writes blocked by an active lock. |
 | `nautobot_object_lock_bypass_total` | Counter | — | `bypass_object_lock()` invocations. |
+| `nautobot_object_lock_bypass_audit_failures_total` | Counter | — | A bypass was permitted but its `ObjectLockBypassAudit` row failed to write (compliance gap — alert on any increase). |
 | `nautobot_object_lock_sweep_last_success_timestamp_seconds` | Gauge | — | Unix timestamp of the last completed sweep; alert on staleness for liveness. |
 | `nautobot_object_lock_sweep_failed_content_types_total` | Counter | — | Content types that failed during a sweep; alert on a rising rate. |
 
@@ -176,8 +177,12 @@ on the standard Nautobot `/metrics` endpoint):
 Enforcement is global, so a lock on *any* UUID-PK `BaseModel` is honored without per-model wiring. The
 **surfacing** is opt-in and demonstrated on `Manufacturer`:
 
-- REST: mix `ObjectLockableSerializerMixin` into the model's serializer and `ObjectLockableModelViewSetMixin`
-  into its viewset.
+- REST: mix `ObjectLockableSerializerMixin` and `ObjectLockableModelViewSetMixin` (both importable from
+  `nautobot.apps.api`) into the model's serializer and viewset.
+- Forms: mix `LockedFieldsFormMixin` (`nautobot.apps.forms`) into the model's edit form so frozen fields
+  render disabled.
+- Filters: mix `ObjectLockableFilterSetMixin` (`nautobot.apps.filters`) into the model's filterset to
+  expose the lock filters.
 - UI: the list glyph, detail banner, and Locks panel are registered for every lockable model
   automatically by `register_object_lock_ui()` (called from `ExtrasConfig.ready()`), so no per-model
   template work is needed.

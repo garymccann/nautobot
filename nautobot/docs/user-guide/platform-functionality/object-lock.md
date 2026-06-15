@@ -112,10 +112,13 @@ Every object type exposes Object Lock state in GraphQL:
 - `locked_fields` (`[String]`) and `locks` (the underlying `ObjectLock` records) — returned only to
   callers holding `extras.view_objectlock`; otherwise they resolve to empty.
 
-There is no top-level `object_locks` query in this release; lock state is queried per object:
+Lock state is available inline on every object, and the `ObjectLock` records are also exposed as a
+top-level `object_locks` query (filterable like any other type; the records themselves are gated by
+`extras.view_objectlock`):
 
 ```graphql
 query { manufacturers { name is_locked locked_for_update locked_fields } }
+query { object_locks(prevent_delete: true) { reason source_key } }
 ```
 
 ## Modifying a locked object (bypass)
@@ -132,9 +135,11 @@ with bypass_object_lock():
 ```
 
 The context manager re-checks the permission on every entry and raises `PermissionDenied` if the
-active change-context user lacks it. Every bypass writes an `ObjectLockBypassAudit` record **in the same
-transaction as the write it permits** — the audit and the change commit (or roll back) together, so there
-is never a committed bypass without its audit row.
+active change-context user lacks it. Every bypass attempts to write an `ObjectLockBypassAudit` record in
+the same transaction as the write it permits. Audit-write failures are deliberately **swallowed** (logged,
+and counted by `nautobot_object_lock_bypass_audit_failures_total`) so a logging failure can never block an
+intentionally authorized write — so in that rare failure case a bypass can commit without its audit row.
+Alert on any increase in that counter.
 
 Bypass is **programmatic only** — there is no UI or REST API affordance for it in this release; it is
 for trusted code paths (Jobs, SSoT, the shell). The `ObjectLockBypassAudit` records are reviewable by
@@ -157,7 +162,7 @@ Grant `add_objectlock` narrowly — it is the trust boundary.
 
 | Setting | Environment variable | Default | Purpose |
 |---|---|---|---|
-| `OBJECT_LOCK_ENFORCED` | `NAUTOBOT_OBJECT_LOCK_ENFORCED` | `True` | Kill switch for the **whole feature**: `False` disables enforcement **and** all surfacing (glyphs, banners, `is_locked`/lock-state fields, filters, GraphQL). **Restart-only** (read at startup). |
+| `OBJECT_LOCK_ENFORCED` | `NAUTOBOT_OBJECT_LOCK_ENFORCED` | `True` | Kill switch for the **whole feature**: `False` turns off enforcement and all *visible* surfacing — no glyphs or banners, and the lock-state filters report nothing locked. The REST/GraphQL `is_locked` / `locked_for_*` / `locked_fields` fields stay in the schema but resolve to unlocked/empty. **Restart-only** (read at startup). |
 | `OBJECT_LOCK_DEFAULT_TTL` | `NAUTOBOT_OBJECT_LOCK_DEFAULT_TTL` | `86400` (24 h) | Default TTL (seconds) applied to programmatic locks when `expires` is omitted. |
 
 Both settings are read from environment variables at startup. To disable enforcement:
@@ -166,10 +171,11 @@ Both settings are read from environment variables at startup. To disable enforce
 NAUTOBOT_OBJECT_LOCK_ENFORCED=False
 ```
 
-With the kill switch off, Object Lock is fully dormant: no enforcement, and no surfacing either — no
-glyphs or banners, `is_locked` is absent from REST/GraphQL, and the lock-state filters report nothing
-locked. Because the value is read at startup, toggling it requires a **service restart** — treat it as a
-deploy-time control, not an in-incident live switch.
+With the kill switch off, Object Lock is fully dormant: nothing is enforced and nothing renders as locked
+— no glyphs or banners, and the lock-state filters report nothing locked. The REST/GraphQL `is_locked` /
+`locked_for_*` / `locked_fields` fields stay in the schema (so client code keeps working) but always
+resolve to unlocked/empty. Because the value is read at startup, toggling it requires a **service
+restart** — treat it as a deploy-time control, not an in-incident live switch.
 
 ## Maintenance
 

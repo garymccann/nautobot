@@ -18,7 +18,7 @@
             </thead>
             <tbody>
                 {% for claim in claims %}
-                    <tr data-lock-id="{{ claim.pk }}" data-source-label="{{ claim.source_key }}">
+                    <tr data-nb-lock-id="{{ claim.pk }}" data-nb-source-label="{{ claim.source_key }}">
                         <td>
                             {{ claim.mode_label }}
                             {% if claim.prevent_update and claim.locked_fields %}
@@ -35,13 +35,15 @@
                         <td>{{ claim.expires|default:"never" }}</td>
                         <td>
                             {% if claim.can_release %}
-                                <button type="button"
-                                        class="btn btn-sm btn-danger object-lock-release-btn"
-                                        data-lock-id="{{ claim.pk }}"
-                                        data-release-url="{{ claim.release_url }}"
-                                        {% if not claim.is_own %}data-object-lock-force="true"{% endif %}>
-                                    {% if claim.is_own %}Release{% else %}Force release{% endif %}
-                                </button>
+                                {# Real POST form so release works without JS; object_lock.js enhances it by #}
+                                {# intercepting submit to release via fetch and update the live counter in place. #}
+                                <form method="post" action="{{ claim.release_url }}" class="object-lock-release-form d-inline"{% if not claim.is_own %} data-nb-object-lock-force="true"{% endif %}>
+                                    {% csrf_token %}
+                                    <input type="hidden" name="confirm" value="true">
+                                    <button type="submit" class="btn btn-sm btn-danger object-lock-release-btn">
+                                        {% if claim.is_own %}Release{% else %}Force release{% endif %}
+                                    </button>
+                                </form>
                             {% else %}
                                 <span class="text-secondary small">held by another source</span>
                             {% endif %}
@@ -53,8 +55,9 @@
 
         {# Live "N locks remaining" counter for the release-then-act flow. #}
         <div class="object-lock-remaining" aria-live="polite" role="status"
-             data-remaining="{{ active_lock_count }}"
-             data-blocking-others="{{ has_other_source_locks|yesno:'true,false' }}">
+             data-nb-remaining="{{ active_lock_count }}"
+             data-nb-blocking-others="{{ has_other_source_locks|yesno:'true,false' }}"
+             data-nb-login-url="{% url 'login' %}">
             <strong class="object-lock-remaining-count">{{ active_lock_count }}</strong> lock(s) remaining.
         </div>
     {% else %}

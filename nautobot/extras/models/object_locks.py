@@ -14,7 +14,7 @@ from django.utils import timezone
 from nautobot.core.constants import CHARFIELD_MAX_LENGTH
 from nautobot.core.models import BaseManager, BaseModel
 from nautobot.core.models.querysets import RestrictedQuerySet
-from nautobot.extras.choices import ObjectChangeEventContextChoices, ObjectLockModeChoices
+from nautobot.extras.choices import ObjectChangeEventContextChoices
 from nautobot.extras.models.change_logging import ChangeLoggedModel
 from nautobot.extras.utils import extras_features
 
@@ -95,7 +95,10 @@ def _derive_attribution(requesting_user):
     change_context = change_context_state.get()
     if change_context is not None:
         source_context = change_context.context
-        source_detail = change_context.context_detail or ""
+        # Bound to the column width: change_context.context_detail is capped at
+        # CHANGELOG_MAX_CHANGE_CONTEXT_DETAIL (400) but source_detail is a CHARFIELD_MAX_LENGTH (255)
+        # column, so a 256-400 char detail would raise DataError (PostgreSQL) / truncate (MySQL).
+        source_detail = (change_context.context_detail or "")[:CHARFIELD_MAX_LENGTH]
         created_by = change_context.get_user() or requesting_user
     else:
         source_context = ObjectChangeEventContextChoices.CONTEXT_ORM
@@ -154,6 +157,7 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
         expires=None,
         requesting_user,
         _expires_explicit=False,
+        _internal_source_key=False,
     ):
         """Create or update a single lock claim on *obj*. Idempotent per *source_key*.
 
@@ -171,6 +175,8 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
                 indefinite (no-expiry) lock when that setting is unset.
             requesting_user: User on whose behalf the lock is being placed.
             _expires_explicit: Set to True to pass *expires=None* for an indefinite lock.
+            _internal_source_key: Private. Set to True only by `locked()` for the `auto:` key it generates
+                itself, so the reserved-prefix guard admits it while still rejecting caller `auto:` input.
 
         Returns:
             The created or updated ObjectLock instance.
@@ -195,6 +201,12 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
             # Reject a past expiry on every surface (the REST serializer also checks): a born-expired
             # lock is active()==False from creation, protecting nothing while reporting success.
             raise ValidationError("Object Lock expires must be in the future.")
+        if source_key is not None and not _internal_source_key and source_key.startswith("auto:"):
+            # 'auto:' is reserved for server-generated keys; a caller-supplied 'auto:' key could
+            # masquerade as a system/auto lock in 409 messages and the Locks panel. All caller-facing
+            # paths (REST, bulk job/form, programmatic) funnel through here; only locked() sets
+            # _internal_source_key=True, for the auto: key it generates itself.
+            raise ValidationError("Object Lock source_key may not start with the reserved 'auto:' prefix.")
         if source_key is None:
             source_key = f"auto:{uuid.uuid4()}"[:OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH]
         source_context, source_detail, created_by = _derive_attribution(requesting_user)
@@ -300,9 +312,16 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
             objs = [obj_or_iterable]
         else:
             objs = list(obj_or_iterable)
-        if source_key is None:
+        internal_source_key = source_key is None
+        if internal_source_key:
             source_key = f"auto:{uuid.uuid4()}"[:OBJECT_LOCK_SOURCE_KEY_MAX_LENGTH]
-        self.lock_many(objs, source_key=source_key, requesting_user=requesting_user, **kwargs)
+        self.lock_many(
+            objs,
+            source_key=source_key,
+            requesting_user=requesting_user,
+            _internal_source_key=internal_source_key,
+            **kwargs,
+        )
         try:
             yield
         finally:
@@ -380,24 +399,6 @@ class ObjectLock(ChangeLoggedModel, BaseModel):
             modes.append("update")
         return f"Lock ({'/'.join(modes) or 'none'}) on {self.locked_object} by {self.source_key}"
 
-    @property
-    def mode(self):
-        """Return the effective lock mode derived from prevent_delete/prevent_update flags.
-
-        Returns:
-            ObjectLockModeChoices.BOTH if both flags are set,
-            ObjectLockModeChoices.DELETE if only prevent_delete is set,
-            ObjectLockModeChoices.UPDATE if only prevent_update is set,
-            None if neither flag is set (lock has no effect).
-        """
-        if self.prevent_delete and self.prevent_update:
-            return ObjectLockModeChoices.BOTH
-        if self.prevent_delete:
-            return ObjectLockModeChoices.DELETE
-        if self.prevent_update:
-            return ObjectLockModeChoices.UPDATE
-        return None
-
     def clean(self):
         """Validate locked_fields names against the target model's fields.
 
@@ -457,7 +458,6 @@ class ObjectLockBypassAudit(BaseModel):
         blank=True,
     )
     time = models.DateTimeField(auto_now_add=True, db_index=True)
-    action = models.CharField(max_length=50, default="bypass")
     content_type = models.ForeignKey(
         to=ContentType,
         on_delete=models.PROTECT,
@@ -468,7 +468,6 @@ class ObjectLockBypassAudit(BaseModel):
     suspended_source_keys = models.JSONField(default=list)
     suspended_fields = models.JSONField(default=list)
     suspended_other_source = models.BooleanField(default=False)
-    detail = models.TextField(blank=True)
 
     # Write-only, admin-only immutable audit table — not a Metadata association target (mirrors ObjectLock).
     natural_key_field_names = ["pk"]
@@ -505,18 +504,16 @@ class ObjectLockGeneration(models.Model):
 
     @classmethod
     def bump(cls):
-        """Increment the singleton generation token and return the current value.
+        """Increment the singleton generation token.
 
         The `F()` update is atomic per-row, so the counter is monotonic and never loses increments.
-        The returned value is advisory only — it is read back in a separate statement, so under
-        concurrency it may reflect another transaction's bump; cross-request correctness comes from the
-        fail-closed, token-keyed gate cache, not from this return value.
+        Returns nothing: cross-request correctness comes from the fail-closed, token-keyed gate cache,
+        not from a read-back of this counter, so the extra SELECT would be wasted.
         """
         from django.db.models import F
 
         cls.objects.get_or_create(pk=1)
         cls.objects.filter(pk=1).update(token=F("token") + 1)
-        return cls.objects.values_list("token", flat=True).get(pk=1)
 
     @classmethod
     def current(cls):

@@ -97,20 +97,18 @@ class ObjectLockAdmin(NautobotModelAdmin):
 class ObjectLockBypassAuditAdmin(NautobotModelAdmin):
     """Read-only view of bypass audit records (written only by the bypass context manager)."""
 
-    list_display = ["time", "user", "action", "content_type", "object_id", "suspended_other_source"]
-    list_filter = ["action", "suspended_other_source", "time"]
-    search_fields = ["object_id", "detail"]
+    list_display = ["time", "user", "content_type", "object_id", "suspended_other_source"]
+    list_filter = ["suspended_other_source", "time"]
+    search_fields = ["object_id"]
     fields = [
         "time",
         "user",
-        "action",
         "content_type",
         "object_id",
         "change_id",
         "suspended_source_keys",
         "suspended_fields",
         "suspended_other_source",
-        "detail",
     ]
     readonly_fields = fields
 

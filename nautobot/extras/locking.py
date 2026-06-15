@@ -405,16 +405,15 @@ def enforce_m2m_change(instance, field_name, action):
 def _write_bypass_audit(claims, content_type_id, instance):
     """Persist a durable `ObjectLockBypassAudit` row for an active bypass override.
 
-    Called inside enforce_object_lock when a bypass is active and live claims exist.
-    Records the union of frozen fields across all suspended claims and whether any
-    claim was created by a user other than the bypassing user. Errors are logged but
-    never re-raised so a logging failure cannot silently block a write that was
-    intentionally authorised.
+    Called from `enforce_object_lock` and `enforce_m2m_change` when a bypass is active and live claims
+    exist. Records the union of frozen fields across all suspended claims and whether any claim was
+    created by a user other than the bypassing user. Errors are logged but never re-raised so a logging
+    failure cannot silently block a write that was intentionally authorised.
 
     Args:
         claims: List of ObjectLock instances being overridden.
         content_type_id: Integer PK of the ContentType for the target object.
-        instance: The model instance being saved or deleted under bypass.
+        instance: The model instance being saved, deleted, or whose M2M relation is mutating under bypass.
     """
     from nautobot.extras.models.object_locks import ObjectLockBypassAudit
     from nautobot.extras.signals import change_context_state
@@ -442,7 +441,6 @@ def _write_bypass_audit(claims, content_type_id, instance):
     try:
         ObjectLockBypassAudit.objects.create(
             user=user,
-            action="bypass",
             content_type_id=content_type_id,
             object_id=instance.pk,
             change_id=change_id,

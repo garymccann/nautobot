@@ -155,7 +155,7 @@ def render_lock_glyph(state, *, include_metadata=True):
     # LOCK_GLYPHS[token] is a fixed constant; the tooltip is passed as a format_html arg so any
     # lock-sourced text (e.g. source_keys) is HTML-escaped.
     return format_html(
-        '<i class="mdi {}" title="{}" aria-label="{}"></i> ',
+        '<i class="mdi {}" role="img" title="{}" aria-label="{}"></i> ',
         LOCK_GLYPHS[token],
         tooltip,
         tooltip,

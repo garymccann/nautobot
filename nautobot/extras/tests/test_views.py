@@ -6249,8 +6249,19 @@ class ObjectMetadataTestCase(
                 return False
 
         url_bearing = [m for m in self._get_queryset() if _assigned_object_has_url(m)]
+        self.assertTrue(
+            url_bearing,
+            "Test data must contain at least one ObjectMetadata whose assigned_object exposes a detail URL.",
+        )
         instance1 = url_bearing[0]
-        instance2 = next(m for m in url_bearing if m.assigned_object_id != instance1.assigned_object_id)
+        instance2 = next(
+            (m for m in url_bearing if m.assigned_object_id != instance1.assigned_object_id),
+            None,
+        )
+        self.assertIsNotNone(
+            instance2,
+            "Test data must contain two URL-bearing ObjectMetadata with distinct assigned objects.",
+        )
         # ===== end REMOVE BEFORE MERGE =====
         self._get_queryset().filter(~Q(pk=instance1.pk) & ~Q(pk=instance2.pk)).delete()
 

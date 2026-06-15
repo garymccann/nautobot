@@ -111,22 +111,6 @@ class ObjectLockModelTestCase(TestCase):
         self.assertIn("bypass_objectlock", perms)
         self.assertIn("force_release_objectlock", perms)
 
-    def test_mode_delete_only(self):
-        lock = self._make_lock(prevent_delete=True, prevent_update=False)
-        self.assertEqual(lock.mode, ObjectLockModeChoices.DELETE)
-
-    def test_mode_update_only(self):
-        lock = self._make_lock(prevent_delete=False, prevent_update=True)
-        self.assertEqual(lock.mode, ObjectLockModeChoices.UPDATE)
-
-    def test_mode_both(self):
-        lock = self._make_lock(prevent_delete=True, prevent_update=True)
-        self.assertEqual(lock.mode, ObjectLockModeChoices.BOTH)
-
-    def test_mode_neither(self):
-        lock = self._make_lock(prevent_delete=False, prevent_update=False)
-        self.assertIsNone(lock.mode)
-
     def test_active_excludes_expired(self):
         """active() includes non-expired locks and excludes expired ones."""
         expired_lock = self._make_lock(source_key="expired-key", expires=timezone.now() - timedelta(seconds=1))
@@ -702,7 +686,6 @@ class ObjectLockBypassTestCase(TestCase):
         self.assertEqual(audit.user, self.superuser)
         self.assertEqual(audit.object_id, mfg.pk)
         self.assertIn("audit-src", audit.suspended_source_keys)
-        self.assertEqual(audit.action, "bypass")
 
     def test_bypass_audit_log_emitted(self):
         """bypass_object_lock() always logs an INFO message on entry."""
@@ -999,11 +982,11 @@ class ObjectLockDetailAffordanceRenderTestCase(TestCase):
     def test_view_only_user_sees_no_lock_affordances(self):
         user = get_user_model().objects.create_user(username="m3-viewonly")
         self._grant(user, "view")
-        self.assertNotIn("data-object-lock-blocked", self._detail_html(user))
+        self.assertNotIn("data-nb-object-lock-blocked", self._detail_html(user))
 
     def test_change_and_delete_user_sees_blocked_affordances(self):
         user = get_user_model().objects.create_user(username="m3-editor")
         self._grant(user, "view", "change", "delete")
         html = self._detail_html(user)
-        self.assertIn('data-object-lock-blocked="edit"', html)
-        self.assertIn('data-object-lock-blocked="delete"', html)
+        self.assertIn('data-nb-object-lock-blocked="edit"', html)
+        self.assertIn('data-nb-object-lock-blocked="delete"', html)

@@ -30,10 +30,12 @@
         </div>
         <div class="nb-form-sticky-footer">
             {% if mode == "lock" and locked_objects %}
-                <button type="submit" name="_confirm" value="unlocked_only" class="btn btn-primary">
-                    <span aria-hidden="true" class="mdi mdi-lock me-4"></span><!--
-                    -->Proceed with {{ unlocked_count }} unlocked only
-                </button>
+                {% if unlocked_count %}
+                    <button type="submit" name="_confirm" value="unlocked_only" class="btn btn-primary">
+                        <span aria-hidden="true" class="mdi mdi-lock me-4"></span><!--
+                        -->Proceed with {{ unlocked_count }} unlocked only
+                    </button>
+                {% endif %}
             {% else %}
                 <button type="submit" name="_confirm" value="all" class="btn btn-primary">
                     <span aria-hidden="true" class="mdi mdi-check me-4"></span><!--

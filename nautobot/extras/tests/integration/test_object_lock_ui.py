@@ -64,7 +64,7 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
 
     def test_delete_control_is_aria_disabled_with_explanation(self):
         self._visit_detail()
-        delete_btn = self.browser.find_by_css("[data-object-lock-blocked='delete']", wait_time=5)
+        delete_btn = self.browser.find_by_css("[data-nb-object-lock-blocked='delete']", wait_time=5)
         self.assertEqual(1, len(delete_btn))
         self.assertEqual("true", delete_btn.first["aria-disabled"])
         described_by = delete_btn.first["aria-describedby"]
@@ -76,7 +76,7 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
         # The Edit affordance must carry the same accessible blocked semantics as Delete: focusable,
         # aria-disabled, and pointing (via aria-describedby) at an explanation element that exists.
         self._visit_detail()
-        edit_btn = self.browser.find_by_css("[data-object-lock-blocked='edit']", wait_time=5)
+        edit_btn = self.browser.find_by_css("[data-nb-object-lock-blocked='edit']", wait_time=5)
         self.assertEqual(1, len(edit_btn))
         self.assertEqual("true", edit_btn.first["aria-disabled"])
         described_by = edit_btn.first["aria-describedby"]
@@ -93,7 +93,7 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
         for blocked in ("edit", "delete"):
             with self.subTest(control=blocked):
                 url = self._open_detail()  # reload between subtests so each starts from a clean page
-                control = self.browser.find_by_css(f"[data-object-lock-blocked='{blocked}']", wait_time=5)
+                control = self.browser.find_by_css(f"[data-nb-object-lock-blocked='{blocked}']", wait_time=5)
                 described_by = control.first["aria-describedby"]
                 control.first.click()
                 # Navigation suppression: the URL is still the detail page (no "#" appended, no nav).
@@ -110,7 +110,7 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
         for key in (Keys.ENTER, Keys.SPACE):
             with self.subTest(key="ENTER" if key == Keys.ENTER else "SPACE"):
                 url = self._open_detail()  # reload between subtests so each starts from a clean page
-                control = self.browser.find_by_css("[data-object-lock-blocked='edit']", wait_time=5)
+                control = self.browser.find_by_css("[data-nb-object-lock-blocked='edit']", wait_time=5)
                 described_by = control.first["aria-describedby"]
                 element = control.first._element  # underlying Selenium WebElement
                 # Focus the control as a keyboard user would (tab onto it) before sending the key, so the
@@ -132,14 +132,16 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
     def test_releasing_own_lock_decrements_counter_to_zero(self):
         self._visit_detail()
         counter = self.browser.find_by_css(".object-lock-remaining", wait_time=5)
-        self.assertEqual("1", counter.first["data-remaining"])
+        self.assertEqual("1", counter.first["data-nb-remaining"])
         self.browser.find_by_css(".object-lock-release-btn", wait_time=5).first.click()
         # Releasing the only lock drops the live counter to 0. Per js/object_lock.js that briefly
         # announces "0 lock(s) remaining" in the aria-live region, then reloads the page so the server
         # re-renders the now-unblocked controls with their real action URLs (the client can't synthesize
         # them). The blocked-delete affordance is therefore gone after the reload, not flipped in place.
         self.assertTrue(self.browser.is_text_present("0 lock(s) remaining", wait_time=10))
-        self.assertTrue(self.browser.is_element_not_present_by_css("[data-object-lock-blocked='delete']", wait_time=10))
+        self.assertTrue(
+            self.browser.is_element_not_present_by_css("[data-nb-object-lock-blocked='delete']", wait_time=10)
+        )
 
 
 @tag("integration")
@@ -190,7 +192,7 @@ class ObjectLockMixedOwnershipTestCase(SeleniumTestCase):
         # The blocked delete control stays aria-disabled (cannot reach zero).
         self.assertTrue(
             self.browser.is_element_present_by_css(
-                "[data-object-lock-blocked='delete'][aria-disabled='true']", wait_time=5
+                "[data-nb-object-lock-blocked='delete'][aria-disabled='true']", wait_time=5
             )
         )
 

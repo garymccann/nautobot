@@ -4982,7 +4982,6 @@ class ObjectLockBulkReleaseView(ObjectLockBulkActionView):
                 "content_type": content_type,
                 "all_pks": pk_list,
                 "locked_objects": locked_objects,
-                "unlocked_count": 0,
                 "return_url": self._safe_return_url(request),
             },
         )

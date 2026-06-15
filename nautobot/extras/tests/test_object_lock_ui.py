@@ -447,25 +447,25 @@ class ObjectLockDetailAffordanceTestCase(TestCase):
         mfr = Manufacturer.objects.create(name="Update Only Mfr")
         self._lock(mfr, prevent_delete=False, prevent_update=True)
         html = self._detail_html(mfr)
-        self.assertIn('data-object-lock-blocked="edit"', html)
-        self.assertNotIn('data-object-lock-blocked="delete"', html)
+        self.assertIn('data-nb-object-lock-blocked="edit"', html)
+        self.assertNotIn('data-nb-object-lock-blocked="delete"', html)
 
     def test_delete_only_lock_blocks_delete_not_edit(self):
         mfr = Manufacturer.objects.create(name="Delete Only Mfr")
         self._lock(mfr, prevent_delete=True, prevent_update=False)
         html = self._detail_html(mfr)
-        self.assertIn('data-object-lock-blocked="delete"', html)
-        self.assertNotIn('data-object-lock-blocked="edit"', html)
+        self.assertIn('data-nb-object-lock-blocked="delete"', html)
+        self.assertNotIn('data-nb-object-lock-blocked="edit"', html)
 
     def test_both_lock_blocks_edit_and_delete(self):
         mfr = Manufacturer.objects.create(name="Both Locked Mfr")
         self._lock(mfr, prevent_delete=True, prevent_update=True)
         html = self._detail_html(mfr)
-        self.assertIn('data-object-lock-blocked="edit"', html)
-        self.assertIn('data-object-lock-blocked="delete"', html)
+        self.assertIn('data-nb-object-lock-blocked="edit"', html)
+        self.assertIn('data-nb-object-lock-blocked="delete"', html)
 
     def test_unlocked_blocks_neither(self):
         mfr = Manufacturer.objects.create(name="Unlocked Aff Mfr")
         html = self._detail_html(mfr)
-        self.assertNotIn('data-object-lock-blocked="edit"', html)
-        self.assertNotIn('data-object-lock-blocked="delete"', html)
+        self.assertNotIn('data-nb-object-lock-blocked="edit"', html)
+        self.assertNotIn('data-nb-object-lock-blocked="delete"', html)
