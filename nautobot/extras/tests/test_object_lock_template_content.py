@@ -13,7 +13,12 @@ from nautobot.dcim.models import Manufacturer
 from nautobot.extras.models import ObjectLock
 from nautobot.extras.plugins import TemplateExtension
 from nautobot.extras.registry import registry
-from nautobot.extras.template_content import object_lock_banner, ObjectLockPanel
+from nautobot.extras.template_content import (
+    _claim_can_release,
+    object_lock_banner,
+    ObjectLockPanel,
+    register_object_lock_ui,
+)
 from nautobot.users.models import ObjectPermission
 
 User = get_user_model()
@@ -132,3 +137,36 @@ class ObjectLockExtensionRegistrationTestCase(TestCase):
             ),
             "ObjectLock TemplateExtension with an ObjectLockPanel was not registered for dcim.manufacturer",
         )
+
+
+class ObjectLockTemplateContentCoverageTestCase(TestCase):
+    """Cover the remaining reachable branches in template_content.py."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.ct = ContentType.objects.get_for_model(Manufacturer)
+        cls.user = User.objects.create_superuser(username="tc-cov-su")
+        cls.mfr = Manufacturer.objects.create(name="TC Cov Mfr")
+
+    def test_claim_can_release_own_claim(self):
+        # Own claim + delete_objectlock (superuser) -> (can_release=True, is_own=True). The other-source
+        # branch is exercised by the panel tests; this covers the is_own branch.
+        claim = ObjectLock.objects.create(
+            content_type=self.ct,
+            object_id=self.mfr.pk,
+            prevent_delete=True,
+            source_key="own",
+            created_by=self.user,
+        )
+        self.assertEqual(_claim_can_release(claim, self.user), (True, True))
+
+    def test_panel_does_not_render_without_object(self):
+        self.assertFalse(ObjectLockPanel(weight=750).should_render(Context({})))
+
+    def test_register_object_lock_ui_is_idempotent(self):
+        # register_object_lock_ui() runs at app startup; re-running must not double-register a model's
+        # extension (the documented "safe to re-run" guard).
+        key = f"{self.ct.app_label}.{self.ct.model}"
+        before = len(registry["plugin_template_extensions"].get(key, []))
+        register_object_lock_ui()
+        self.assertEqual(len(registry["plugin_template_extensions"].get(key, [])), before)

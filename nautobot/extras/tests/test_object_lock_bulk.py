@@ -5,7 +5,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.template import Context, Template
 from django.test import Client, override_settings, RequestFactory, TestCase
 from django.urls import reverse as dj_reverse
@@ -345,3 +345,71 @@ class BulkLockButtonRegistrationTestCase(TestCase):
         del_html = self._render(delete_only)
         self.assertIn("Release Selected", del_html)
         self.assertNotIn("Lock Selected", del_html)
+
+
+class BulkJobCoverageTestCase(TestCase):
+    """Guard branches of the bulk lock/release Jobs: permission, uninstalled CT, unreleasable claim."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.ct = ContentType.objects.get_for_model(Manufacturer)
+        cls.mfr = Manufacturer.objects.create(name="Bulk Cov Mfr")
+        cls.superuser = User.objects.create_superuser(username="bulk-cov-su")
+
+    def _run(self, user, job_cls, **kwargs):
+        job = job_cls()
+        job.__dict__["job_result"] = SimpleNamespace(user=user)
+        job.logger = logging.getLogger("test.objectlock")
+        return job.run(**kwargs)
+
+    def test_lock_without_add_permission_is_denied(self):
+        user = User.objects.create_user(username="bulk-cov-noperm")
+        with self.assertRaises(PermissionDenied):
+            self._run(
+                user,
+                BulkLockObjects,
+                content_type=self.ct,
+                pk_list=[self.mfr.pk],
+                mode=ObjectLockModeChoices.DELETE,
+                reason="r",
+                source_key="k",
+                expires=(timezone.now() + timedelta(days=1)).isoformat(),
+            )
+
+    def test_lock_uninstalled_content_type_raises(self):
+        ghost = ContentType.objects.create(app_label="ghost_bulk_lock_cov", model="ghost")
+        with self.assertRaises(ValidationError):
+            self._run(
+                self.superuser,
+                BulkLockObjects,
+                content_type=ghost,
+                pk_list=[],
+                mode=ObjectLockModeChoices.DELETE,
+                reason="r",
+                source_key="k",
+                expires=(timezone.now() + timedelta(days=1)).isoformat(),
+            )
+
+    def test_release_uninstalled_content_type_raises(self):
+        ghost = ContentType.objects.create(app_label="ghost_bulk_rel_cov", model="ghost")
+        with self.assertRaises(ValidationError):
+            self._run(self.superuser, BulkReleaseObjects, content_type=ghost, pk_list=[])
+
+    def test_release_skips_claim_user_cannot_release(self):
+        # Another owner's claim, run by a user with view but NOT force_release_objectlock: the claim is
+        # skipped (not released) and the object is counted as skipped.
+        owner = User.objects.create_user(username="bulk-cov-owner")
+        actor = User.objects.create_user(username="bulk-cov-actor")
+        view_perm = ObjectPermission.objects.create(name="bulk-cov-view", actions=["view"])
+        view_perm.object_types.set([self.ct])
+        view_perm.users.add(actor)
+        lock = ObjectLock.objects.create(
+            content_type=self.ct,
+            object_id=self.mfr.pk,
+            prevent_delete=True,
+            source_key="other-owner",
+            created_by=owner,
+        )
+        summary = self._run(actor, BulkReleaseObjects, content_type=self.ct, pk_list=[self.mfr.pk])
+        self.assertTrue(ObjectLock.objects.filter(pk=lock.pk).exists())  # not released
+        self.assertIn("1 skipped", summary)
