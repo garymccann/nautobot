@@ -2733,26 +2733,12 @@ class LockedFieldsFormMixin:
         return get_frozen_fields_for_object(ContentType.objects.get_for_model(instance).pk, instance.pk)
 
     def is_field_frozen(self, field_name):
-        """Return True if ``field_name`` is frozen for this form's target object.
-
-        Args:
-            field_name (str): The form field name to test.
-
-        Returns:
-            bool: True when the field is in the frozen-field set (or the set freezes everything).
-        """
+        """Return True if ``field_name`` is frozen for this form's target object (or all fields are)."""
         try:
             return field_name in self._frozen_fields
         except TypeError:
             return False
 
     def frozen_field_explanation(self, field_name):
-        """Return the per-field explanation string shown for a frozen field.
-
-        Args:
-            field_name (str): The frozen field name.
-
-        Returns:
-            str: A human-readable explanation (a per-field override or the default).
-        """
+        """Return the per-field explanation string for a frozen field (a per-field override or the default)."""
         return self._frozen_field_explanations.get(field_name, DEFAULT_FROZEN_FIELD_EXPLANATION)

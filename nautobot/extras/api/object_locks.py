@@ -128,52 +128,25 @@ class ObjectLockableSerializerMixin(drf_serializers.Serializer):
 
     @extend_schema_field(drf_serializers.BooleanField())
     def get_is_locked(self, obj):
-        """Return True if *obj* has at least one active lock claim.
-
-        Args:
-            obj: The model instance being serialized.
-
-        Returns:
-            bool: True when one or more active claims exist.
-        """
+        """Return True if *obj* has at least one active lock claim."""
         return bool(self._claims_for(obj))
 
     @extend_schema_field(drf_serializers.BooleanField())
     def get_locked_for_delete(self, obj):
-        """Return True if any active claim prevents deletion of *obj*.
-
-        Args:
-            obj: The model instance being serialized.
-
-        Returns:
-            bool: True when at least one active claim has `prevent_delete=True`.
-        """
+        """Return True if any active claim on *obj* has ``prevent_delete=True``."""
         return any(c.prevent_delete for c in self._claims_for(obj))
 
     @extend_schema_field(drf_serializers.BooleanField())
     def get_locked_for_update(self, obj):
-        """Return True if any active claim prevents updates to *obj*.
-
-        Args:
-            obj: The model instance being serialized.
-
-        Returns:
-            bool: True when at least one active claim has `prevent_update=True`.
-        """
+        """Return True if any active claim on *obj* has ``prevent_update=True``."""
         return any(c.prevent_update for c in self._claims_for(obj))
 
     @extend_schema_field(drf_serializers.ListField(child=drf_serializers.CharField(), allow_null=True))
     def get_locked_fields(self, obj):
-        """Return the union of frozen field names from active update locks, or None if gated.
+        """Return the sorted union of frozen field names from active update locks on *obj*.
 
-        Requires `extras.view_objectlock` permission. Returns None when the requesting
-        user lacks that permission.
-
-        Args:
-            obj: The model instance being serialized.
-
-        Returns:
-            list[str] | None: Sorted list of locked field names, or None if gated/empty.
+        Requires ``extras.view_objectlock``; returns None when the requesting user lacks that
+        permission, and None when no fields are frozen.
         """
         request = self.context.get("request")
         user = getattr(request, "user", None)
@@ -297,11 +270,6 @@ class ObjectLockableModelViewSetMixin:
         restriction in `initial()` is bypassed. The actions instead re-restrict object lookup to
         `view` access (`get_object_or_404(self.queryset.restrict(request.user, "view"), ...)`), so a
         caller must still be able to view the target object.
-
-        Args:
-            request: The incoming HTTP request.
-            *args: Positional arguments forwarded from `initial()`.
-            **kwargs: Keyword arguments forwarded from `initial()`.
         """
         if self.action in ("lock", "release"):
             return
@@ -314,16 +282,11 @@ class ObjectLockableModelViewSetMixin:
     )
     @action(detail=True, methods=["post"], url_path="lock", permission_classes=[_LockPermissions])
     def lock(self, request, pk=None, **kwargs):
-        """Create a lock claim on this object.
+        """Create or refresh a lock claim on this object (POST ``lock`` action).
 
-        Args:
-            request: The incoming HTTP request. Body may include `prevent_delete`,
-                `prevent_update`, `reason`, `source_key`, `expires`, and `locked_fields`.
-            pk: Primary key of the target object (injected by DRF router).
-            **kwargs: Additional keyword arguments forwarded by DRF.
-
-        Returns:
-            Response: 201 Created with the serialized ObjectLock on success.
+        The request body may include ``prevent_delete``, ``prevent_update``, ``reason``, ``source_key``,
+        ``expires``, and ``locked_fields``; attribution is server-derived. Responds 201 with the
+        serialized ObjectLock (idempotent per ``source_key``), or 400 on manager-side validation error.
         """
         input_serializer = LockInputSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
@@ -357,16 +320,11 @@ class ObjectLockableModelViewSetMixin:
     )
     @action(detail=True, methods=["post"], url_path="release", permission_classes=[_ReleasePermissions])
     def release(self, request, pk=None, **kwargs):
-        """Release a lock claim on this object.
+        """Release a lock claim on this object (POST ``release`` action).
 
-        Args:
-            request: The incoming HTTP request. Body must include `source_key`
-                identifying the claim to release.
-            pk: Primary key of the target object (injected by DRF router).
-            **kwargs: Additional keyword arguments forwarded by DRF.
-
-        Returns:
-            Response: 200 OK with `{"status": "released", "source_key": ...}`.
+        The request body must include ``source_key``. Releasing a claim created by another source
+        requires ``extras.force_release_objectlock``. Responds 200 with
+        ``{"status": "released", "source_key": ...}``.
         """
         input_serializer = ReleaseInputSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
