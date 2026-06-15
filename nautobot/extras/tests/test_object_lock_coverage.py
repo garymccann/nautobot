@@ -15,7 +15,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import override_settings, RequestFactory
 from django.utils import timezone
 
-from nautobot.core.testing import APITestCase, create_job_result_and_run_job, TestCase
+from nautobot.core.testing import APITestCase, create_job_result_and_run_job, TestCase, TransactionTestCase
 from nautobot.dcim.filters import ManufacturerFilterSet
 from nautobot.dcim.models import Location, LocationType, Manufacturer, Platform
 from nautobot.extras import views
@@ -257,12 +257,17 @@ class ObjectLockApiEdgeTestCase(APITestCase):
         self.assertHttpStatus(resp, 400)
 
 
-class ObjectLockSweepJobTestCase(TestCase):
+class ObjectLockSweepJobTestCase(TransactionTestCase):
     """jobs_object_lock_sweep.py — the Job run() wrapper and the uninstalled-model orphan purge."""
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_user(username="ol-cov-sweep", is_superuser=True)
+    # Running the sweep Job writes JobLogEntry rows to the separate 'job_logs' connection, which an
+    # atomic TestCase can't host ("cannot open a new connection in an atomic block"); use the non-atomic
+    # TransactionTestCase + job_logs db, mirroring JobTransactionTest in test_jobs.py.
+    databases = ("default", "job_logs")
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="ol-cov-sweep", is_superuser=True)
 
     def test_sweep_job_run(self):
         m = Manufacturer.objects.create(name="Sweep Job Mfg")

@@ -134,11 +134,14 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
         counter = self.browser.find_by_css(".object-lock-remaining", wait_time=5)
         self.assertEqual("1", counter.first["data-remaining"])
         self.browser.find_by_css(".object-lock-release-btn", wait_time=5).first.click()
-        # After release the counter reaches 0 and the delete control is no longer aria-disabled.
+        # Releasing the only lock drops the live counter to 0. Per js/object_lock.js that briefly
+        # announces "0 lock(s) remaining" in the aria-live region, then reloads the page so the server
+        # re-renders the now-unblocked controls with their real action URLs (the client can't synthesize
+        # them). The blocked-delete affordance is therefore gone after the reload, not flipped in place.
         self.assertTrue(self.browser.is_text_present("0 lock(s) remaining", wait_time=10))
         self.assertTrue(
-            self.browser.is_element_present_by_css(
-                "[data-object-lock-blocked='delete'][aria-disabled='false']", wait_time=10
+            self.browser.is_element_not_present_by_css(
+                "[data-object-lock-blocked='delete']", wait_time=10
             )
         )
 
