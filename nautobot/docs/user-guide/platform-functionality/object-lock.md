@@ -163,7 +163,7 @@ Grant `add_objectlock` narrowly — it is the trust boundary.
 | Setting | Environment variable | Default | Purpose |
 |---|---|---|---|
 | `OBJECT_LOCK_ENFORCED` | `NAUTOBOT_OBJECT_LOCK_ENFORCED` | `True` | Kill switch for the **whole feature**: `False` turns off enforcement and all *visible* surfacing — no glyphs or banners, and the lock-state filters report nothing locked. The REST/GraphQL `is_locked` / `locked_for_*` / `locked_fields` fields stay in the schema but resolve to unlocked/empty. **Restart-only** (read at startup). |
-| `OBJECT_LOCK_DEFAULT_TTL` | `NAUTOBOT_OBJECT_LOCK_DEFAULT_TTL` | `86400` (24 h) | Default TTL (seconds) applied to programmatic locks when `expires` is omitted. |
+| `OBJECT_LOCK_DEFAULT_TTL` | `NAUTOBOT_OBJECT_LOCK_DEFAULT_TTL` | `86400` (24 h) | Default TTL (seconds) for locks created without an explicit `expires`. The environment variable is integer-only; set `OBJECT_LOCK_DEFAULT_TTL = None` in `nautobot_config.py` (not via the env var) for indefinite-by-default locks — see [Expiry and indefinite locks](#expiry-and-indefinite-locks). |
 
 Both settings are read from environment variables at startup. To disable enforcement:
 

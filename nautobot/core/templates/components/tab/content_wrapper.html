@@ -30,7 +30,7 @@
                         <div class="btn-group" role="group" aria-label="Detail view button group">
                             {% if user|can_change:object %}
                                 {% if object_lock.locked_for_update %}
-                                    <a href="#" class="btn btn-warning" data-nb-object-lock-blocked="edit" aria-disabled="true" aria-describedby="object-lock-edit-explanation">
+                                    <a role="button" tabindex="0" class="btn btn-warning" data-nb-object-lock-blocked="edit" aria-disabled="true" aria-describedby="object-lock-edit-explanation">
                                         <span class="mdi mdi-pencil-lock" aria-hidden="true"></span> Edit {{ verbose_name|bettertitle }}
                                     </a>
                                 {% else %}
@@ -39,13 +39,16 @@
                             {% endif %}
                             {% if user|can_delete:object %}
                                 {% if object_lock.locked_for_delete %}
-                                    <a href="#" class="btn btn-danger" data-nb-object-lock-blocked="delete" aria-disabled="true" aria-describedby="object-lock-delete-explanation">
+                                    <a role="button" tabindex="0" class="btn btn-danger" data-nb-object-lock-blocked="delete" aria-disabled="true" aria-describedby="object-lock-delete-explanation">
                                         <span class="mdi mdi-lock" aria-hidden="true"></span> Delete {{ verbose_name|bettertitle }}
                                     </a>
                                 {% else %}
                                     {% delete_button object %}
                                 {% endif %}
                             {% endif %}
+                            {# Clone + model-specific action buttons (parity with object_retrieve.html) so #}
+                            {# locking never hides unrelated, safe actions. #}
+                            {% object_lock_extra_detail_buttons %}
                         </div>
                         {% if object_lock.locked_for_update and user|can_change:object %}
                             <span id="object-lock-edit-explanation" class="visually-hidden" hidden>

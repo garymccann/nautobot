@@ -121,12 +121,12 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
                 self.assertEqual(described_by, self.browser.evaluate_script("document.activeElement.id"))
 
     def test_remaining_counter_region_is_live(self):
-        # The "N remaining" region must be an aria-live polite status region so screen readers announce
-        # the count change after a release without the user moving focus.
+        # The "N remaining" region must be a status live region so screen readers announce the count
+        # change after a release without the user moving focus. role="status" implies aria-live="polite"
+        # (the explicit attribute is intentionally not set, to avoid the redundancy).
         self._visit_detail()
         counter = self.browser.find_by_css(".object-lock-remaining", wait_time=5)
         self.assertEqual(1, len(counter))
-        self.assertEqual("polite", counter.first["aria-live"])
         self.assertEqual("status", counter.first["role"])
 
     def test_releasing_own_lock_decrements_counter_to_zero(self):

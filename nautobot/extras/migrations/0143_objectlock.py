@@ -67,6 +67,8 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": ["content_type", "object_id", "source_key"],
+                "verbose_name": "Object Lock",
+                "verbose_name_plural": "Object Locks",
                 "permissions": [
                     ("bypass_objectlock", "Can bypass an Object Lock to modify a locked object"),
                     ("force_release_objectlock", "Can release an Object Lock created by a different source"),

@@ -54,7 +54,7 @@
         </table>
 
         {# Live "N locks remaining" counter for the release-then-act flow. #}
-        <div class="object-lock-remaining" aria-live="polite" role="status"
+        <div class="object-lock-remaining" role="status"
              data-nb-remaining="{{ active_lock_count }}"
              data-nb-blocking-others="{{ has_other_source_locks|yesno:'true,false' }}"
              data-nb-login-url="{% url 'login' %}">

@@ -10,7 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.safestring import SafeString
 
-from nautobot.dcim.models import Manufacturer
+from nautobot.dcim.models import DeviceType, Manufacturer
 from nautobot.dcim.tables import ManufacturerTable
 from nautobot.extras.models import ComputedField, ObjectLock, Status
 from nautobot.extras.object_lock_ui import (
@@ -469,3 +469,24 @@ class ObjectLockDetailAffordanceTestCase(TestCase):
         html = self._detail_html(mfr)
         self.assertNotIn('data-nb-object-lock-blocked="edit"', html)
         self.assertNotIn('data-nb-object-lock-blocked="delete"', html)
+
+    def test_locked_object_still_offers_clone(self):
+        # A lock (even delete-only) must not hide unrelated, safe actions like Clone: the unlocked path
+        # gets it from consolidate_detail_view_action_buttons, the locked path from
+        # object_lock_extra_detail_buttons. Manufacturer has no clone_fields, so use DeviceType (which
+        # does) to prove Clone survives a delete-lock.
+        device_type = DeviceType.objects.create(
+            manufacturer=Manufacturer.objects.create(name="Clone Mfr"), model="Clone Type"
+        )
+        ObjectLock.objects.create(
+            content_type=ContentType.objects.get_for_model(DeviceType),
+            object_id=device_type.pk,
+            source_key="aff",
+            prevent_delete=True,
+            prevent_update=False,
+            expires=self.expiry,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(device_type.get_absolute_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="clone-button"', response.content.decode())

@@ -379,6 +379,8 @@ class ObjectLock(ChangeLoggedModel, BaseModel):
 
     class Meta:
         ordering = ["content_type", "object_id", "source_key"]
+        verbose_name = "Object Lock"
+        verbose_name_plural = "Object Locks"
         constraints = [
             models.UniqueConstraint(
                 fields=["content_type", "object_id", "source_key"],
