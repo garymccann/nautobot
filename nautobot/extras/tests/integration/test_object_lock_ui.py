@@ -139,11 +139,7 @@ class ObjectLockAffordanceTestCase(SeleniumTestCase):
         # re-renders the now-unblocked controls with their real action URLs (the client can't synthesize
         # them). The blocked-delete affordance is therefore gone after the reload, not flipped in place.
         self.assertTrue(self.browser.is_text_present("0 lock(s) remaining", wait_time=10))
-        self.assertTrue(
-            self.browser.is_element_not_present_by_css(
-                "[data-object-lock-blocked='delete']", wait_time=10
-            )
-        )
+        self.assertTrue(self.browser.is_element_not_present_by_css("[data-object-lock-blocked='delete']", wait_time=10))
 
 
 @tag("integration")
