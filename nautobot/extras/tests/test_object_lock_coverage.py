@@ -1,8 +1,8 @@
-"""Targeted unit tests closing Object Lock coverage gaps (Bucket 1 + 2 of the coverage review).
+"""Targeted unit tests for Object Lock behaviours not exercised directly by the broader suites.
 
-These are real behavioural tests — template tags, glyph/summary helpers, filter methods, the sweep
-Job wrapper, manager/diff edge paths, and m2m-enforcement early returns — each annotated with the
-source line(s) it exercises. Defensive/unreachable guards (Bucket 3) are intentionally not covered.
+Real behavioural tests — template tags, glyph/summary helpers, filter methods, the sweep Job wrapper,
+manager/diff edge paths, and m2m-enforcement early returns. Purely defensive guards that are only
+reachable by mocking an internal failure are intentionally left uncovered.
 """
 
 from datetime import timedelta
@@ -357,7 +357,7 @@ class ObjectLockDefensiveGuardTestCase(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username="ol-cov-guard")
 
-    def test_find_stale_locked_fields_uninstalled_model(self):  # locking.py:636-639
+    def test_find_stale_locked_fields_uninstalled_model(self):
         from nautobot.extras.locking import find_stale_locked_fields
 
         ghost_ct = ContentType.objects.create(app_label="ghostapp_stale", model="ghoststale")
@@ -372,13 +372,13 @@ class ObjectLockDefensiveGuardTestCase(TestCase):
         self.assertEqual(len(match), 1)
         self.assertEqual(match[0]["stale_fields"], ["whatever"])  # uninstalled model -> every name stale
 
-    def test_lock_rejects_basemodel_with_non_uuid_pk(self):  # models/object_locks.py:126
+    def test_lock_rejects_basemodel_with_non_uuid_pk(self):
         instance = Manufacturer(name="NonUuidPk")
         instance.pk = 123  # a BaseModel instance whose pk is not a UUID
         with self.assertRaises(TypeError):
             ObjectLock.objects.lock(instance, requesting_user=self.user)
 
-    def test_frozen_field_labels_uninstalled_model(self):  # models/object_locks.py:421
+    def test_frozen_field_labels_uninstalled_model(self):
         ghost_ct = ContentType.objects.create(app_label="ghostapp_lbl", model="ghostlbl")
         lock = ObjectLock.objects.create(
             content_type=ghost_ct,
@@ -389,21 +389,21 @@ class ObjectLockDefensiveGuardTestCase(TestCase):
         )
         self.assertEqual(lock.frozen_field_labels(), ["a", "b"])  # no model -> raw stored names
 
-    def test_m2m_field_name_for_sender_no_match(self):  # signals.py:541
+    def test_m2m_field_name_for_sender_no_match(self):
         from nautobot.extras.signals import _m2m_field_name_for_sender
 
         mfr = Manufacturer.objects.create(name="M2M NoMatch")
         # An unrelated through model resolves to no field name on the instance.
         self.assertIsNone(_m2m_field_name_for_sender(mfr, Tag.content_types.through))
 
-    def test_is_field_frozen_non_iterable_returns_false(self):  # forms/forms.py:2746-2747
+    def test_is_field_frozen_non_iterable_returns_false(self):
         class _SampleForm(LockedFieldsFormMixin, dj_forms.Form):
             name = dj_forms.CharField(required=False)
 
         form = _SampleForm(frozen_fields=123)  # non-iterable -> `in` raises TypeError -> False
         self.assertFalse(form.is_field_frozen("name"))
 
-    def test_bulk_resolve_request_uninstalled_model_404(self):  # views.py:4860
+    def test_bulk_resolve_request_uninstalled_model_404(self):
         from django.http import Http404
 
         ghost_ct = ContentType.objects.create(app_label="ghostapp_view", model="ghostview")
@@ -412,18 +412,19 @@ class ObjectLockDefensiveGuardTestCase(TestCase):
         with self.assertRaises(Http404):
             view._resolve_request(request)
 
-    def test_glyph_wrap_is_idempotent(self):  # core/tables.py:371
+    def test_glyph_wrap_is_idempotent(self):
         from nautobot.dcim.tables import ManufacturerTable
 
         table = ManufacturerTable(Manufacturer.objects.none())  # __init__ wraps the primary column once
         table._wrap_primary_column_with_lock_glyph()  # a second call must no-op via the idempotency guard
 
 
-# Regression tests for the PR-review fixes (M-1, M-2, M-4, M-6, H-3, L-8).
+# Assorted Object Lock behaviours: filter combination, kill-switch surfacing, blocked-write message,
+# list-view query efficiency, factory name uniqueness, and gate-rebuild fallback.
 
 
 class ObjectLockFilterCombinationTestCase(APITestCase):
-    """M-1: combining two lock filters must not 500 (distinct annotation aliases)."""
+    """Combining two lock filters must not 500 (each filter uses a distinct annotation alias)."""
 
     def setUp(self):
         super().setUp()
@@ -438,7 +439,7 @@ class ObjectLockFilterCombinationTestCase(APITestCase):
 
 
 class ObjectLockKillSwitchSurfacingTestCase(APITestCase):
-    """M-2: OBJECT_LOCK_ENFORCED=False silences surfacing too (UI helper, REST fields, filters)."""
+    """OBJECT_LOCK_ENFORCED=False silences surfacing too (UI helper, REST fields, filters)."""
 
     def setUp(self):
         super().setUp()
@@ -465,7 +466,7 @@ class ObjectLockKillSwitchSurfacingTestCase(APITestCase):
 
 
 class ObjectLockBlockedMessageTestCase(TestCase):
-    """M-6: the blocked-write message leads with the human reason, keeping source_key as secondary."""
+    """The blocked-write message leads with the human reason, keeping source_key as secondary."""
 
     def test_message_leads_with_reason(self):
         from nautobot.extras.locking import build_locked_message, GATE_MODE_DELETE
@@ -485,7 +486,7 @@ class ObjectLockBlockedMessageTestCase(TestCase):
 
 
 class ObjectLockListViewQuerysetTestCase(TestCase):
-    """H-3: the ObjectLock UI list view eager-loads its FK + GFK columns (no N+1)."""
+    """The ObjectLock UI list view eager-loads its FK + GFK columns (no N+1)."""
 
     def test_uiviewset_queryset_eager_loads(self):
         queryset = views.ObjectLockUIViewSet.queryset
@@ -495,7 +496,7 @@ class ObjectLockListViewQuerysetTestCase(TestCase):
 
 
 class ObjectLockFactoryUniquenessTestCase(TestCase):
-    """L-8: ObjectLockFactory builds many instances without colliding on the unique target name."""
+    """ObjectLockFactory builds many instances without colliding on the unique target name."""
 
     def test_factory_batch_creates_distinct_targets(self):
         from nautobot.extras.factory import ObjectLockFactory
@@ -505,7 +506,7 @@ class ObjectLockFactoryUniquenessTestCase(TestCase):
 
 
 class ObjectLockGateRebuildTestCase(TestCase):
-    """M-4: a failed gate-rebuild lock acquisition (redis LockError) falls back to a DB build, not a 500."""
+    """A failed gate-rebuild lock acquisition (redis LockError) falls back to a DB build, not a 500."""
 
     def test_gate_rebuild_survives_lock_error(self):
         from unittest import mock
@@ -524,11 +525,11 @@ class ObjectLockGateRebuildTestCase(TestCase):
         self.assertIn(GATE_MODE_UPDATE, gate)
 
 
-# H-2: trust-boundary RBAC — object-scoped lock/release, round-trip gate re-arm, bypass via ObjectPermission.
+# Trust-boundary RBAC: object-scoped lock/release, round-trip gate re-arm, and bypass via ObjectPermission.
 
 
 class ObjectLockRBACTestCase(APITestCase):
-    """H-2: the lock/release actions honor object-level view scoping, and release re-arms the gate."""
+    """The lock/release actions honor object-level view scoping, and release re-arms the gate."""
 
     def setUp(self):
         super().setUp()
@@ -587,7 +588,7 @@ class ObjectLockRBACTestCase(APITestCase):
 
 
 class ObjectLockBypassRBACTestCase(TestCase):
-    """H-2: bypass works when bypass_objectlock is granted via an ObjectPermission (not only as superuser)."""
+    """Bypass works when bypass_objectlock is granted via an ObjectPermission (not only as superuser)."""
 
     def test_bypass_permission_via_object_permission(self):
         from nautobot.extras.locking import bypass_object_lock
@@ -611,7 +612,7 @@ class ObjectLockBypassRBACTestCase(TestCase):
 
 
 class ObjectLockNoOpRejectionTestCase(TestCase):
-    """N-6: a lock that prevents neither delete nor update is rejected at validation."""
+    """A lock that prevents neither delete nor update is rejected at validation."""
 
     @classmethod
     def setUpTestData(cls):

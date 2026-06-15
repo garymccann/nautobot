@@ -317,15 +317,15 @@ class LockGlyphOverAvailableRowsTestCase(TestCase):
         return data, unsaved
 
     def test_available_prefix_rows_render_without_error(self):
-        # (a) No exception: every primary cell renders even though most rows are unsaved instances.
+        # Every primary cell renders even though most rows are unsaved instances (no exception).
         data, _ = self._build_available_prefix_table()
         table = PrefixTable(data)
         cells = [row.get_cell("prefix") for row in table.rows]
         self.assertEqual(len(cells), len(data))
 
     def test_lock_lookup_skips_unsaved_rows_and_is_single_query(self):
-        # (b)/(c) The bulk lock lookup must run exactly once and be fed ONLY the saved row(s); the
-        # unsaved "available" rows must be filtered out before they reach lock_state_for_objects.
+        # The bulk lock lookup must run exactly once and be fed ONLY the saved row(s); the unsaved
+        # "available" rows must be filtered out before they reach lock_state_for_objects.
         data, unsaved = self._build_available_prefix_table()
         table = PrefixTable(data)
         with (

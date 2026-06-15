@@ -18,8 +18,8 @@ NAUTOBOT_ROOT = os.path.dirname(os.path.abspath(nautobot.__file__))
 RAW_BULK_PATTERN = re.compile(r"\.(bulk_update|bulk_create)\(|\._raw_delete\(")
 DISCONNECT_PATTERN = re.compile(r"pre_delete\.disconnect\(")
 
-# Known-good, reviewed bypass sites: "relative/path.py" allowed to contain raw-bulk usage.
-# Keep this list tight; every entry is an audited, permitted bypass.
+# Allowlisted bypass sites: each "relative/path.py" is permitted to contain raw-bulk usage.
+# Keep this list tight; every entry is a deliberate, permitted bypass.
 # NOTE: this allowlist is a coarse guard. Tighten file-by-file as needed.
 RAW_BULK_ALLOWLIST = {
     # core maintenance jobs — documented bulk bypasses
@@ -69,26 +69,26 @@ def _grep(pattern):
 
 
 class ObjectLockBypassLintTestCase(SimpleTestCase):
-    def test_no_unreviewed_raw_bulk_call_sites(self):
+    def test_no_unallowlisted_raw_bulk_call_sites(self):
         offenders = _grep(RAW_BULK_PATTERN) - RAW_BULK_ALLOWLIST
         self.assertEqual(
             offenders,
             set(),
             msg=(
                 "New raw-bulk call site(s) detected that bypass Object Lock enforcement: "
-                f"{sorted(offenders)}. If intentional and reviewed, add to RAW_BULK_ALLOWLIST "
+                f"{sorted(offenders)}. If intentional, add it to RAW_BULK_ALLOWLIST "
                 "with a justification comment."
             ),
         )
 
-    def test_no_unreviewed_pre_delete_disconnect_spans(self):
+    def test_no_unallowlisted_pre_delete_disconnect_spans(self):
         offenders = _grep(DISCONNECT_PATTERN) - DISCONNECT_ALLOWLIST
         self.assertEqual(
             offenders,
             set(),
             msg=(
                 "New pre_delete.disconnect span(s) detected that bypass Object Lock enforcement: "
-                f"{sorted(offenders)}. If intentional and reviewed, add to DISCONNECT_ALLOWLIST "
+                f"{sorted(offenders)}. If intentional, add it to DISCONNECT_ALLOWLIST "
                 "with a justification comment."
             ),
         )
