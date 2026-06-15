@@ -1651,9 +1651,9 @@ class ObjectLockTable(BaseTable):
     locked_object = tables.Column(linkify=True, verbose_name="Locked object", orderable=False)
     prevent_delete = BooleanColumn()
     prevent_update = BooleanColumn()
-    # source_key is a freeform owner label, so it is not linkified; locked_object (above) is the link to
-    # the actual locked target object.
-    source_key = tables.Column(verbose_name="Source")
+    # source_key linkifies to the lock's own detail: Nautobot's generic ListObjectsViewTestCase requires a
+    # self-link column and source_key is the lock's natural identifier (locked_object links to the target).
+    source_key = tables.Column(linkify=True, verbose_name="Source")
     expires = tables.DateTimeColumn()
     actions = ButtonsColumn(ObjectLock, buttons=("delete",))
 
