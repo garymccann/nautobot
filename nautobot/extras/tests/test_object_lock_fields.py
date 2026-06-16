@@ -228,7 +228,7 @@ class ObjectLockChangedFieldsTestCase(TestCase):
     def test_snapshot_path_fk_field_diffs_on_pk_not_false_positive(self):
         """A frozen FK is compared by pk: an unchanged FK is not reported; a reassigned FK is.
 
-        Regression guard — snapshots store an FK as its pk string and the live diff serializes the
+        Snapshots store an FK as its pk string and the live diff serializes the
         instance's FK ``_id`` the same way, so an unchanged FK must NOT false-positive (which would
         block legitimate edits to other fields), while a genuine reassignment must be caught.
         """
@@ -301,7 +301,7 @@ class ObjectLockFieldEnforcementTestCase(TestCase):
 class ObjectLockFieldClassificationTestCase(TestCase):
     """Locking a relation name or custom-field key must classify safely (no crash) and still freeze.
 
-    Regression for the field-diff classifier: relation names (m2m/reverse) are skipped here (m2m
+    The field-diff classifier skips relation names (m2m/reverse) here (m2m
     freezing is the m2m_changed receiver's job), and custom-field keys are identified from the model's
     CustomFields rather than the (empty-by-default) instance ``_custom_field_data`` dict.
     """

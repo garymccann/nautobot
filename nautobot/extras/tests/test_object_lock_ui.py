@@ -183,7 +183,7 @@ class BaseTableLockGlyphTestCase(TestCase):
 
 
 class BaseTableLockGlyphAllUnlockedTestCase(TestCase):
-    """Regression: an ALL-UNLOCKED page must still load lock state at most once.
+    """An ALL-UNLOCKED page must still load lock state at most once.
 
     ``lock_state_for_objects`` returns an empty dict for a page with nothing locked. A memo guard that
     treats that falsy ``{}`` as "not yet loaded" re-runs the bulk lookup on *every* primary-column cell,
@@ -225,7 +225,7 @@ class BaseTableLockGlyphAllUnlockedTestCase(TestCase):
             1,
             f"All-unlocked page issued an ObjectLock query per cell (N+1): {object_lock_queries}",
         )
-        # The state map stays an (empty) dict -- no None-safety regression for ``.get`` / ``in`` callers.
+        # The state map stays an (empty) dict -- no None-safety break for ``.get`` / ``in`` callers.
         self.assertEqual(table._object_lock_states, {})
 
 
@@ -275,7 +275,7 @@ class LockGlyphOnNonNameLinkifiedColumnTestCase(TestCase):
 
 
 class LockGlyphOverAvailableRowsTestCase(TestCase):
-    """Regression: the lock glyph must coexist safely with the "available" rows IPAM injects.
+    """The lock glyph must coexist safely with the "available" rows IPAM injects.
 
     IPAM list views feed ``BaseTable`` a mix of real saved records and synthetic "available" rows via
     ``add_available_prefixes`` (unsaved ``Prefix`` instances) and ``add_available_ipaddresses`` (plain
@@ -298,7 +298,7 @@ class LockGlyphOverAvailableRowsTestCase(TestCase):
             content_type=ContentType.objects.get_for_model(Prefix),
             object_id=cls.child.pk,
             prevent_delete=True,
-            reason="regression",
+            reason="lock glyph test",
             source_key="src",
             expires=timezone.now() + timedelta(days=1),
         )
@@ -369,7 +369,7 @@ class LockGlyphOverAvailableRowsTestCase(TestCase):
             content_type=ContentType.objects.get_for_model(Manufacturer),
             object_id=locked.pk,
             prevent_delete=True,
-            reason="regression",
+            reason="lock glyph test",
             source_key="src",
             expires=timezone.now() + timedelta(days=1),
         )
@@ -490,3 +490,26 @@ class ObjectLockDetailAffordanceTestCase(TestCase):
         response = self.client.get(device_type.get_absolute_url())
         self.assertEqual(response.status_code, 200)
         self.assertIn('id="clone-button"', response.content.decode())
+
+    def test_locked_view_renders_registered_extra_action_buttons(self):
+        """Model-registered extra detail-view action buttons render in the locked view; empty markup is skipped."""
+        from nautobot.extras.templatetags.object_lock import object_lock_extra_detail_buttons
+
+        mfr = Manufacturer.objects.create(name="Extra Buttons Mfr")  # no clone_fields, so Clone is not rendered
+
+        class _FakeButton:
+            def __init__(self, markup):
+                self._markup = markup
+
+            def render(self, context):
+                return self._markup
+
+        buttons = [_FakeButton("EXTRA-BUTTON-MARKER"), _FakeButton("")]
+        with mock.patch(
+            "nautobot.extras.templatetags.object_lock.lookup.get_extra_detail_view_action_buttons_for_model",
+            return_value=buttons,
+        ):
+            rendered = object_lock_extra_detail_buttons({"object": mfr, "user": self.user})
+        self.assertIn("EXTRA-BUTTON-MARKER", rendered)
+        # The button whose render() returned "" is falsy and is skipped, so no separator is emitted.
+        self.assertNotIn("\n", rendered)

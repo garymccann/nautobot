@@ -178,6 +178,11 @@ class ObjectLockManagerTestCase(TestCase):
         self.assertTrue(a.source_key)
         self.assertNotEqual(a.source_key, b.source_key)
 
+    def test_caller_supplied_auto_prefixed_source_key_is_rejected(self):
+        """A caller-facing lock may not supply a source_key with the reserved 'auto:' prefix."""
+        with self.assertRaises(ValidationError):
+            ObjectLock.objects.lock(self.m1, prevent_delete=True, source_key="auto:evil", requesting_user=self.user)
+
     def test_cross_owner_source_key_reuse_is_blocked(self):
         """Reusing another source's source_key to weaken its claim requires force_release."""
         other = get_user_model().objects.create_user(username="ol-other-owner")
@@ -696,8 +701,8 @@ class ObjectLockBypassTestCase(TestCase):
         self.assertTrue(any("Object Lock bypass" in line for line in cm.output))
 
     def test_no_bypass_enforcement_still_blocks(self):
-        """Regression: without bypass_object_lock(), update-locked writes still raise ObjectLockedError."""
-        mfg = Manufacturer.objects.create(name="Bypass Regression Mfg")
+        """Without bypass_object_lock(), a write to an update-locked object raises ObjectLockedError."""
+        mfg = Manufacturer.objects.create(name="Bypass Enforcement Mfg")
         ObjectLock.objects.lock(mfg, prevent_update=True, requesting_user=self.superuser)
         invalidate_gate_cache()
         with web_request_context(self.superuser):

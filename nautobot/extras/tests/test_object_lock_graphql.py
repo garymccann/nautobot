@@ -131,7 +131,7 @@ class ObjectLockGraphQLQueryCountTestCase(_GraphQLTestMixin, TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         # Add 5 more locked manufacturers (total: 7 = 1 locked + 1 unlocked from mixin + 5 here).
-        # More objects make an N+1 regression visible: if is_locked issues a query per object,
+        # More objects make an N+1 visible: if is_locked issues a query per object,
         # range(5) vs range(50) would produce different query counts.
         for i in range(5):
             mfr = Manufacturer.objects.create(name=f"GQL Bulk {i}")
@@ -195,3 +195,13 @@ class ObjectLockGraphQLQueryCountTestCase(_GraphQLTestMixin, TestCase):
         self.assertEqual(
             large_count, small_count, f"ObjectLock query count scaled with object count: {small_count} -> {large_count}"
         )
+
+
+class ObjectLockGraphQLKillSwitchTestCase(_GraphQLTestMixin, TestCase):
+    @override_settings(OBJECT_LOCK_ENFORCED=False)
+    def test_claims_for_object_returns_empty_when_enforcement_disabled(self):
+        """With OBJECT_LOCK_ENFORCED off, the GraphQL claims lookup surfaces no lock state for a locked object."""
+        from nautobot.extras.graphql.object_lock import claims_for_object
+
+        # The kill-switch branch returns before touching the request, so a bare None proves it fired first.
+        self.assertEqual(claims_for_object(None, self.ct.pk, self.locked.pk), [])

@@ -10,7 +10,7 @@ from django.test import override_settings, RequestFactory, tag
 from django.utils.timezone import now
 
 from nautobot.core.jobs import BulkDeleteObjects
-from nautobot.core.testing import FilterTestCases, TestCase
+from nautobot.core.testing import FilterTestCases
 from nautobot.dcim.filters import DeviceFilterSet
 from nautobot.dcim.models import (
     Device,
@@ -2639,61 +2639,71 @@ class RoleTestCase(FilterTestCases.FilterTestCase):
         self.assertQuerySetEqualAndNotEmpty(self.filterset(params, self.queryset).qs, rack_roles)
 
 
-class ObjectLockFilterTestCase(TestCase):
-    """Tests for the ``ObjectLockFilterSet`` ``q`` free-text search.
-
-    Uses distinctive tokens and membership assertions (``assertIn``/``assertNotIn``) rather than exact
-    counts, so it stays correct even when the ``--keepdb`` test database retains ``ObjectLock`` rows
-    committed by the Selenium/integration suite.
-    """
+class ObjectLockFilterTestCase(FilterTestCases.FilterTestCase):
+    queryset = ObjectLock.objects.all()
+    filterset = ObjectLockFilterSet
+    generic_filter_tests = (
+        ["object_id"],
+        ["source_key"],
+        ["source_context"],
+        ("created_by", "created_by__id"),
+        ("created_by", "created_by__username"),
+    )
 
     @classmethod
     def setUpTestData(cls):
         ct = ContentType.objects.get_for_model(Manufacturer)
-        mfr_a = Manufacturer.objects.create(name="QSearch Mfr A")
-        mfr_b = Manufacturer.objects.create(name="QSearch Mfr B")
-        cls.lock_a = ObjectLock.objects.create(
-            content_type=ct,
-            object_id=mfr_a.pk,
-            prevent_delete=True,
-            reason="zqs alpha justification",
-            source_key="zqs-source-alpha",
-            source_detail="zqs detail alpha",
+        users = (
+            User.objects.create(username="ol-filter-user1"),
+            User.objects.create(username="ol-filter-user2"),
+            User.objects.create(username="ol-filter-user3"),
         )
-        cls.lock_b = ObjectLock.objects.create(
-            content_type=ct,
-            object_id=mfr_b.pk,
-            prevent_delete=True,
-            reason="zqs beta justification",
-            source_key="zqs-source-beta",
-            source_detail="zqs detail beta",
+        contexts = ["web", "job", "orm"]
+        # (suffix, prevent_delete, prevent_update, user index, source_context index)
+        specs = [
+            ("alpha", True, False, 0, 0),
+            ("beta", True, True, 1, 1),
+            ("gamma", False, True, 2, 2),
+            ("delta", False, False, 0, 0),
+            ("epsilon", True, False, 1, 1),
+            ("zeta", False, True, 2, 2),
+        ]
+        for suffix, prevent_delete, prevent_update, user_idx, ctx_idx in specs:
+            manufacturer = Manufacturer.objects.create(name=f"ObjectLockFilter Mfr {suffix}")
+            ObjectLock.objects.create(
+                content_type=ct,
+                object_id=manufacturer.pk,
+                prevent_delete=prevent_delete,
+                prevent_update=prevent_update,
+                created_by=users[user_idx],
+                source_context=contexts[ctx_idx],
+                source_key=f"zqs-source-{suffix}",
+                source_detail=f"zqs detail {suffix}",
+                reason=f"zqs {suffix} justification",
+            )
+
+    def test_content_type(self):
+        params = {"content_type": "dcim.manufacturer"}
+        self.assertQuerySetEqualAndNotEmpty(
+            self.filterset(params, self.queryset).qs,
+            self.queryset.filter(content_type=ContentType.objects.get_for_model(Manufacturer)),
+            ordered=False,
         )
 
-    def _search(self, value):
-        return ObjectLockFilterSet({"q": value}, ObjectLock.objects.all()).qs
+    def test_prevent_delete(self):
+        for value in (True, False):
+            with self.subTest(prevent_delete=value):
+                self.assertQuerySetEqualAndNotEmpty(
+                    self.filterset({"prevent_delete": value}, self.queryset).qs,
+                    self.queryset.filter(prevent_delete=value),
+                    ordered=False,
+                )
 
-    def test_q_matches_source_key(self):
-        qs = self._search("zqs-source-alpha")
-        self.assertIn(self.lock_a, qs)
-        self.assertNotIn(self.lock_b, qs)
-
-    def test_q_matches_reason(self):
-        qs = self._search("beta justification")
-        self.assertIn(self.lock_b, qs)
-        self.assertNotIn(self.lock_a, qs)
-
-    def test_q_matches_source_detail(self):
-        qs = self._search("detail alpha")
-        self.assertIn(self.lock_a, qs)
-        self.assertNotIn(self.lock_b, qs)
-
-    def test_q_matches_content_type_model(self):
-        # Both locks target Manufacturer, so the content-type search returns both.
-        qs = self._search("manufacturer")
-        self.assertIn(self.lock_a, qs)
-        self.assertIn(self.lock_b, qs)
-
-    def test_q_no_match_returns_neither(self):
-        qs = self._search("zzz-no-such-token-xyz")
-        self.assertNotIn(self.lock_a, qs)
-        self.assertNotIn(self.lock_b, qs)
+    def test_prevent_update(self):
+        for value in (True, False):
+            with self.subTest(prevent_update=value):
+                self.assertQuerySetEqualAndNotEmpty(
+                    self.filterset({"prevent_update": value}, self.queryset).qs,
+                    self.queryset.filter(prevent_update=value),
+                    ordered=False,
+                )
