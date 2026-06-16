@@ -279,11 +279,6 @@ def is_bypass_active():
     return _bypass_active.get()
 
 
-def reset_bypass():
-    """Force-reset the bypass flag. Used in the Celery task lifecycle as defense-in-depth."""
-    _bypass_active.set(False)
-
-
 @contextmanager
 def bypass_object_lock():
     """Allow authorized code to modify a locked object without releasing the lock.

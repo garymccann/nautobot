@@ -154,22 +154,20 @@ class ObjectLockPanel(Panel):
 
 
 def _lockable_models():
-    """Yield every concrete UUID-PK ``BaseModel`` subclass that Object Lock can target.
+    """Yield every concrete ``BaseModel`` subclass that Object Lock can target.
 
-    Mirrors the manager precondition (UUID-PK ``BaseModel`` subclasses). This is introspection-only --
-    it inspects ``model._meta.pk`` without touching the database -- so it is safe to call from
-    ``ready()``.
+    Object Lock stores a target's PK in ``ObjectLock.object_id`` (a ``UUIDField``), and every
+    ``BaseModel`` subclass uses a UUID primary key, so all of them qualify. This is introspection-only --
+    it uses only ``apps.get_models()`` and ``issubclass`` (no database access) -- so it is safe to call
+    from ``ready()``.
 
     Yields:
-        type: Each concrete model class whose primary key is a ``UUIDField``.
+        type: Each concrete ``BaseModel`` subclass.
     """
     from nautobot.core.models import BaseModel
 
     for model in apps.get_models():
         if not issubclass(model, BaseModel):
-            continue
-        pk_field = model._meta.pk
-        if pk_field.get_internal_type() != "UUIDField":
             continue
         yield model
 
