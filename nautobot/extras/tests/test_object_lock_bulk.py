@@ -214,6 +214,16 @@ class ObjectLockBulkViewTestCase(TestCase):
         resp = self.client.post(url, data={"content_type": "abc", "pk": [str(self.unlocked.pk)]})
         self.assertEqual(resp.status_code, 404)
 
+    def test_select_all_resolves_full_filtered_set(self):
+        """`_all` resolves the matching set from the filter (request.GET), not just the posted pks."""
+        # The list filter rides along on the button's formaction query string; post `_all` with only
+        # ONE pk and assert the OTHER matching manufacturer is resolved too (rendered as a hidden pk).
+        url = dj_reverse("extras:objectlock_bulk_lock") + f"?content_type={self.ct.pk}&name__ic=View"
+        resp = self.client.post(url, data={"_all": "on", "pk": [str(self.locked.pk)]})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'value="{self.locked.pk}"')
+        self.assertContains(resp, f'value="{self.unlocked.pk}"')  # not posted; resolved via _all + filter
+
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
     def test_confirm_lock_creates_locks(self):
         """The _confirm path enqueues BulkLockObjects, which (eager) actually creates the lock."""

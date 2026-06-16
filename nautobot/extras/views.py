@@ -4010,9 +4010,7 @@ class ObjectLockUIViewSet(
             # On confirm, require force-release if any selected claim is owned by another source (or none).
             if "_confirm" in request.POST and not request.user.has_perm("extras.force_release_objectlock"):
                 selected = self.queryset.filter(pk__in=request.POST.getlist("pk"))
-                other_owned = bool(request.POST.get("_all")) or (
-                    selected.count() != selected.filter(created_by_id=request.user.pk).count()
-                )
+                other_owned = bool(request.POST.get("_all")) or selected.exclude(created_by_id=request.user.pk).exists()
                 if other_owned:
                     self.permission_denied(
                         request,
@@ -4858,9 +4856,20 @@ class ObjectLockBulkActionView(PermissionRequiredMixin, View):
         model = content_type.model_class()
         if model is None:
             raise Http404("The content type's model is no longer installed.")
-        pk_list = request.POST.getlist("pk")
+        view_restricted = model.objects.restrict(request.user, "view")
+        if request.POST.get("_all"):
+            # "Select all matching" — resolve from the (view-restricted) filtered queryset, the way
+            # Nautobot's other bulk views do. The list's active filter rides along on the button's
+            # ``formaction`` query string (``request.GET``), so this honors that filter rather than
+            # acting on every object of the model.
+            filterset_class = get_filterset_for_model(model)
+            base = view_restricted.only("pk")
+            matched = filterset_class(request.GET, base).qs if filterset_class is not None else base
+            pk_list = [str(pk) for pk in matched.values_list("pk", flat=True)]
+        else:
+            pk_list = request.POST.getlist("pk")
         # Enforce object-level view permissions on the targets.
-        objects = list(model.objects.restrict(request.user, "view").filter(pk__in=pk_list))
+        objects = list(view_restricted.filter(pk__in=pk_list))
         return content_type, model, pk_list, objects, lock_state_for_objects(objects)
 
     def _safe_return_url(self, request):
