@@ -183,6 +183,11 @@ class ObjectLockManagerTestCase(TestCase):
         with self.assertRaises(ValidationError):
             ObjectLock.objects.lock(self.m1, prevent_delete=True, source_key="auto:evil", requesting_user=self.user)
 
+    def test_lock_rejects_unsaved_target(self):
+        """Object Lock protects existing objects; locking an unsaved instance is rejected, not orphaned."""
+        with self.assertRaises(ValidationError):
+            ObjectLock.objects.lock(Manufacturer(name="Unsaved Mfr"), prevent_delete=True, requesting_user=self.user)
+
     def test_cross_owner_source_key_reuse_is_blocked(self):
         """Reusing another source's source_key to weaken its claim requires force_release."""
         other = get_user_model().objects.create_user(username="ol-other-owner")

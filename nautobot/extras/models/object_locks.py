@@ -188,6 +188,10 @@ class ObjectLockManager(BaseManager.from_queryset(ObjectLockQuerySet)):
                 force_release_objectlock.
         """
         self._validate_target(obj)
+        if not obj.present_in_database:
+            # Object Lock protects *existing* objects; a BaseModel gets its UUID at instantiation, so a
+            # lock on an unsaved instance would write an orphan claim that protects nothing.
+            raise ValidationError("Cannot place an Object Lock on an object that has not been saved.")
         if not prevent_delete and not prevent_update:
             raise ValidationError(
                 "An Object Lock must prevent at least one of delete or update (a no-op lock protects nothing)."

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.template import Context
-from django.test import RequestFactory, TestCase
+from django.test import override_settings, RequestFactory, TestCase
 from django.utils import timezone
 
 from nautobot.dcim.models import Manufacturer
@@ -121,6 +121,16 @@ class ObjectLockPanelTestCase(TestCase):
         self.assertNotIn("because", html)  # reason hidden
         self.assertNotIn("src-a", html)  # source hidden
         self.assertIn("Lock details are restricted to authorized users", html)
+
+    @override_settings(OBJECT_LOCK_ENFORCED=False)
+    def test_panel_dormant_when_enforcement_disabled(self):
+        """The kill switch suppresses the panel (no query, no render) even for a locked object."""
+        request = RequestFactory().get("/")
+        request.user = self.privileged
+        panel = ObjectLockPanel(weight=750)
+        ctx = Context({"object": self.locked, "request": request})
+        self.assertFalse(panel.should_render(ctx))
+        self.assertEqual(panel.render(ctx), "")
 
 
 class ObjectLockExtensionRegistrationTestCase(TestCase):

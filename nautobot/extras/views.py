@@ -37,6 +37,7 @@ from nautobot.core.constants import PAGINATE_COUNT_DEFAULT
 from nautobot.core.exceptions import FilterSetFieldNotFound
 from nautobot.core.forms import ApprovalForm, restrict_form_fields
 from nautobot.core.forms.forms import DynamicFilterFormSet
+from nautobot.core.models import BaseModel
 from nautobot.core.models.querysets import count_related
 from nautobot.core.models.utils import pretty_print_query
 from nautobot.core.templatetags import helpers
@@ -4856,6 +4857,10 @@ class ObjectLockBulkActionView(PermissionRequiredMixin, View):
         model = content_type.model_class()
         if model is None:
             raise Http404("The content type's model is no longer installed.")
+        if not issubclass(model, BaseModel):
+            # A tampered content_type could point at a non-Nautobot model whose manager has no
+            # restrict()/RestrictedQuerySet; reject with a 404 rather than a 500 AttributeError.
+            raise Http404("Object Lock is not supported for this content type.")
         view_restricted = model.objects.restrict(request.user, "view")
         if request.POST.get("_all"):
             # "Select all matching" — resolve from the (view-restricted) filtered queryset, the way

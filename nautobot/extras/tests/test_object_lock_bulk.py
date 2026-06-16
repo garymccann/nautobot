@@ -224,6 +224,13 @@ class ObjectLockBulkViewTestCase(TestCase):
         self.assertContains(resp, f'value="{self.locked.pk}"')
         self.assertContains(resp, f'value="{self.unlocked.pk}"')  # not posted; resolved via _all + filter
 
+    def test_unsupported_content_type_returns_404(self):
+        """A content_type whose model is not a lockable BaseModel (no RestrictedQuerySet) 404s, not 500s."""
+        nonlockable = ContentType.objects.get_for_model(ContentType)
+        url = dj_reverse("extras:objectlock_bulk_lock") + f"?content_type={nonlockable.pk}"
+        resp = self.client.post(url, data={"pk": [str(self.unlocked.pk)]})
+        self.assertEqual(resp.status_code, 404)
+
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
     def test_confirm_lock_creates_locks(self):
         """The _confirm path enqueues BulkLockObjects, which (eager) actually creates the lock."""

@@ -3,6 +3,7 @@
 from typing import Optional
 
 from django.apps import apps
+from django.conf import settings
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -97,12 +98,17 @@ class ObjectLockPanel(Panel):
     def should_render(self, context):
         """Render the panel only for a saved object that currently has at least one active lock.
 
+        Returns False when enforcement is disabled (``OBJECT_LOCK_ENFORCED`` off) so the feature stays
+        dormant — no query, no panel — matching ``lock_state_for_objects`` and the other surfaces.
+
         Args:
             context (Context): The detail-page render context, expected to contain ``object``.
 
         Returns:
             bool: True when the object has one or more active locks, else False (panel renders "").
         """
+        if not settings.OBJECT_LOCK_ENFORCED:
+            return False
         obj = context.get("object")
         if obj is None or not hasattr(obj, "pk"):
             return False
