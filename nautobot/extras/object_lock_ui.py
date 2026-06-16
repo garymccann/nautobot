@@ -102,8 +102,6 @@ LOCK_GLYPHS = {
     "both": "mdi-lock-alert",
 }
 
-# Say "accidental", not "all": locks are bypassable out-of-band (shell, migrations, raw bulk ORM), so
-# this blurb must not over-promise blanket protection.
 LOCK_PROTECTION_BLURB = "protected against accidental deletion/edits via the UI, API, and Jobs"
 
 

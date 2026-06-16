@@ -403,11 +403,11 @@ class ModelViewSet(
         model = self.queryset.model
         self.logger.info(f"Deleting {model._meta.verbose_name} {instance} (PK: {instance.pk})")
 
-        # Wrap in a savepoint-based atomic block so that if ObjectLockedError (or any ProtectedError)
-        # is raised from Django's Collector.delete() — which uses atomic(savepoint=False) internally —
-        # the savepoint is rolled back cleanly before the exception propagates. Without this wrapper,
-        # Collector.delete()'s atomic(savepoint=False) sets connection.needs_rollback=True on the
-        # enclosing TestCase transaction, making all subsequent DB queries fail.
+        # Run the delete inside a savepoint (matching perform_create / perform_update) so that an
+        # ObjectLockedError raised by a pre_delete receiver — which propagates out of Django's
+        # Collector.delete(), itself an atomic(savepoint=False) block — rolls back only this savepoint.
+        # Otherwise that inner block marks any enclosing transaction (e.g. an ATOMIC_REQUESTS request)
+        # needs_rollback, leaving the connection unusable for the 409 response that dispatch() builds.
         with transaction.atomic():
             return super().perform_destroy(instance)
 
